@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Clock3, CircleAlert, RefreshCw } from 'lucide-react';
 import { accountApi } from './accountApi';
 import { api } from './api';
 import { parseYuan, yuanText } from './money';
@@ -10,6 +11,15 @@ type Order = { id: string; kind: string; provider: string; amount_cents: number;
   checkout: { mock?: boolean; qr_image?: string } | null };
 const states: Record<string, string> = { created: '等待支付', submitting: '支付订单处理中',
   pending: '等待支付', uncertain: '支付状态待确认', paid: '支付已确认' };
+const PAGE_SIZE = 10;
+const methodNames: Record<string, string> = { alipay: '支付宝', wechat: '微信支付', mock: '模拟支付（仅开发测试）', free: '平台免费权益' };
+
+function OrderStatus({ order }: { order: Order }) {
+  return <span className={`commerce-status ${order.state === 'paid' ? 'success' : ''}`}>
+    {order.state === 'paid' ? <CheckCircle2 size={14} aria-hidden="true" />
+      : order.state === 'uncertain' ? <CircleAlert size={14} aria-hidden="true" /> : <Clock3 size={14} aria-hidden="true" />}
+    {states[order.state] || '订单状态待确认'}</span>;
+}
 
 export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => void }) {
   const [methods, setMethods] = useState<Method[]>([]);
@@ -19,28 +29,36 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
   const [active, setActive] = useState<Order | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [ordersOffset, setOrdersOffset] = useState(0);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState('');
+  const [ordersRefresh, setOrdersRefresh] = useState(0);
   const attempts = useRef(new Map<string, string>());
   const notified = useRef(new Set<string>());
   const generation = useRef(0);
 
-  async function reload() {
-    const response = await accountApi<{ items: Order[] }>('/api/account/orders');
-    setOrders(response.items);
-  }
+  function reload() { setOrdersRefresh((value) => value + 1); }
   useEffect(() => {
     let alive = true;
     void api<{ methods: Method[] }>('/api/payments/methods').then((data) => {
       if (!alive) return;
       setMethods(data.methods); setProvider(data.methods.find((method) => method.ready)?.id || '');
     }).catch((err: Error) => { if (alive) setError(err.message); });
-    void accountApi<{ items: Order[] }>('/api/account/orders').then((response) => {
-      if (alive) setOrders(response.items);
-    }).catch((err: Error) => { if (alive) setError(err.message); });
     return () => { alive = false; generation.current++; };
   }, []);
+  useEffect(() => {
+    let alive = true;
+    setOrdersLoading(true); setOrdersError(''); setOrders([]);
+    void accountApi<{ items: Order[] }>(`/api/account/orders?limit=${PAGE_SIZE}&offset=${ordersOffset}`).then((response) => {
+      if (alive) setOrders(response.items);
+    }).catch((err: Error) => { if (alive) setOrdersError(`订单读取失败：${err.message}。请点击刷新订单重试。`); })
+      .finally(() => { if (alive) setOrdersLoading(false); });
+    return () => { alive = false; };
+  }, [ordersOffset, ordersRefresh]);
 
   function receive(order: Order) {
     setActive(order);
+    setOrders((old) => old.map((item) => item.id === order.id ? order : item));
     if (order.state === 'paid' && !notified.current.has(order.id)) {
       notified.current.add(order.id); onPaid();
     }
@@ -51,7 +69,7 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
     const timer = window.setInterval(() => {
       void accountApi<Order>(`/api/account/orders/${active.id}`).then((order) => {
         if (alive) receive(order);
-      }).catch((err: Error) => { if (alive) setError(err.message); });
+      }).catch((err: Error) => { if (alive) setError(`暂时无法读取支付状态：${err.message}。订单仍保留，请稍后刷新支付状态。`); });
     }, 3000);
     return () => { alive = false; window.clearInterval(timer); };
     // Polling reads persisted verified state; it never claims browser success.
@@ -64,6 +82,7 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
     if (kind === 'recharge' && (parsed === null || parsed <= 0)) {
       setError('请输入大于 0 且最多两位小数的充值金额'); return;
     }
+    if (parsed !== null && parsed > 10000000) { setError('单次充值不能超过 100000 元'); return; }
     if (!provider && (kind === 'recharge' || plan?.price_cents !== 0)) {
       setError('平台暂未开放在线支付'); return;
     }
@@ -77,43 +96,67 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': attempts.current.get(key)! },
         body: JSON.stringify(body) });
       if (marker !== generation.current) return;
-      attempts.current.delete(key); receive(order); await reload();
-    } catch (err) { if (marker === generation.current) setError((err as Error).message); }
+      attempts.current.delete(key); receive(order); setOrdersOffset(0); reload();
+    } catch (err) { if (marker === generation.current) {
+      setError(`充值或购买未完成：${(err as Error).message}。请检查我的订单；同一金额和支付方式重试会复用本次请求，避免重复创建订单。`);
+      reload();
+    } }
     finally { if (marker === generation.current) setBusy(false); }
   }
   async function refresh(mock = false) {
     if (!active || busy) return;
+    const marker = generation.current;
     setBusy(true); setError('');
     try {
-      receive(await accountApi<Order>(`/api/account/orders/${active.id}/${mock ? 'mock-pay' : 'refresh'}`, 'POST', {}));
-      await reload();
-    } catch (err) { setError((err as Error).message); }
-    finally { setBusy(false); }
+      const order = await accountApi<Order>(`/api/account/orders/${active.id}/${mock ? 'mock-pay' : 'refresh'}`, 'POST', {});
+      if (marker !== generation.current) return;
+      receive(order); reload();
+    } catch (err) { if (marker === generation.current) setError(`查询支付结果失败：${(err as Error).message}。请稍后重试，已支付时请勿重复付款。`); }
+    finally { if (marker === generation.current) setBusy(false); }
   }
+
+  const timedOut = active && active.state !== 'paid' && active.expires * 1000 <= Date.now();
 
   return <div className="payment-panel">
     <h3>充值与会员购买</h3>
-    {error && <p role="alert">{error}</p>}
+    <div className="payment-fields"><label htmlFor="wallet-recharge-amount">充值金额（元）<input id="wallet-recharge-amount" className="text-input" inputMode="decimal" value={amount}
+      placeholder="请输入金额，最多两位小数" onChange={(event) => setAmount(event.target.value)} aria-describedby={error ? 'payment-error' : undefined} /></label>
+    <div className="payment-amounts" aria-label="快捷充值金额">{['30', '50', '100'].map((value) => <button key={value} type="button"
+      className={amount === value ? 'selected' : ''} aria-pressed={amount === value} onClick={() => setAmount(value)}>¥{value}</button>)}</div>
     {methods.some((method) => method.ready) ? <label>支付方式<select className="text-input" value={provider}
       onChange={(event) => setProvider(event.target.value)}>
       {methods.filter((method) => method.ready).map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
-    </select></label> : <small>平台暂未开放在线支付</small>}
-    <label>充值金额（元）<input className="text-input" inputMode="decimal" value={amount}
-      onChange={(event) => setAmount(event.target.value)} /></label>
-    <button type="button" className="button" disabled={busy || !provider} onClick={() => void purchase('recharge')}>创建充值订单</button>
+    </select></label> : <div className="commerce-warning"><p>平台暂未开放在线支付</p><small>支付渠道未配置。请稍后重试或联系平台；已有余额仍可正常使用。</small></div>}
+    {error && <p id="payment-error" role="alert" className="commerce-error">{error}</p>}
+    <button type="button" className="button" disabled={busy || !provider} onClick={() => void purchase('recharge')}>{busy ? '正在处理订单…' : '创建充值订单'}</button></div>
     {plans.map((plan) => <button key={plan.id} type="button" className="text-button"
       disabled={busy || (!provider && plan.price_cents !== 0)} onClick={() => void purchase('membership', plan)}>
       购买{plan.name} · ¥{yuanText(plan.price_cents)}</button>)}
-    {active && <section aria-label="支付订单"><p>{active.description} · ¥{yuanText(active.amount_cents)}</p>
-      <p role="status">{states[active.state] || active.state}</p>
-      {active.state !== 'paid' && active.checkout?.qr_image && <img width="200" height="200" src={active.checkout.qr_image} alt="扫码支付二维码" />}
+    {active && <section aria-label="支付订单" className="payment-active"><p>{active.description}</p><p className="payment-total">¥{yuanText(active.amount_cents)}</p>
+      <p role="status"><OrderStatus order={active} /></p>
+      <small>支付方式：{methodNames[active.provider] || '支付渠道'}<br />订单编号：<span className="payment-reference">{active.id}</span></small>
+      {active.state === 'uncertain' && <p className="commerce-warning">支付渠道暂未确认结果，请查询原订单，不要重复付款。</p>}
+      {timedOut && <p className="commerce-warning">付款时限已到，请先刷新支付状态确认结果。若已付款，请勿重复付款；超时不代表支付失败。</p>}
+      {active.state !== 'paid' && !timedOut && <small>付款期限：{new Date(active.expires * 1000).toLocaleString()}</small>}
+      {active.state !== 'paid' && !timedOut && active.checkout?.qr_image && <img width="200" height="200" src={active.checkout.qr_image} alt="扫码支付二维码" />}
       {active.state !== 'paid' && <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>刷新支付状态</button>}
       {active.state !== 'paid' && active.checkout?.mock && <button type="button" className="text-button" disabled={busy}
         onClick={() => void refresh(true)}>模拟付款（仅开发测试）</button>}
-      <small>余额与会员仅在服务端核实支付后更新。</small>
+      <small>{active.state === 'paid' ? '支付成功，服务端已确认并更新余额或会员权益。' : '余额与会员仅在服务端核实支付后更新。'}</small>
     </section>}
-    <h3>我的订单</h3>{orders.length ? orders.map((order) => <button type="button" key={order.id} className="text-button"
-      onClick={() => receive(order)}>{order.description} · ¥{yuanText(order.amount_cents)} · {states[order.state] || order.state}</button>)
-      : <small>暂无订单</small>}
+    <div className="commerce-heading"><h3>我的订单</h3><button type="button" className="text-button" disabled={ordersLoading} onClick={reload}>
+      <RefreshCw size={14} />刷新订单</button></div>
+    {ordersError && <p role="alert" className="commerce-error">{ordersError}</p>}
+    {ordersLoading && <small role="status">正在读取订单…</small>}
+    <div className="payment-order-list" aria-busy={ordersLoading}>{orders.map((order) => <button type="button" key={order.id}
+      className={active?.id === order.id ? 'selected' : ''} onClick={() => { setError(''); receive(order); }}>
+      <span className="payment-order-title"><span>{order.description}</span><strong>¥{yuanText(order.amount_cents)}</strong></span>
+      <OrderStatus order={order} /><small>{new Date(order.created * 1000).toLocaleString()} · {methodNames[order.provider] || '支付渠道'}</small>
+    </button>)}</div>
+    {!ordersLoading && !ordersError && !orders.length && <small>暂无订单</small>}
+    <div className="commerce-pagination"><button type="button" className="text-button" disabled={ordersLoading || ordersOffset === 0}
+      onClick={() => setOrdersOffset((value) => Math.max(0, value - PAGE_SIZE))}>上一页订单</button><span>第 {ordersOffset / PAGE_SIZE + 1} 页</span>
+      <button type="button" className="text-button" disabled={ordersLoading || Boolean(ordersError) || orders.length < PAGE_SIZE}
+        onClick={() => setOrdersOffset((value) => value + PAGE_SIZE)}>下一页订单</button></div>
   </div>;
 }
