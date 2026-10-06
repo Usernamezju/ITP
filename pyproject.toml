@@ -36,6 +36,10 @@ packages = ["src/itp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# `tests/test_flux_klein_service.py` imports the vendored `services` package by
+# repository-relative name, so the project root must be importable when pytest
+# runs as a console script.
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
