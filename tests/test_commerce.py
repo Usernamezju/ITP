@@ -339,6 +339,7 @@ def test_successful_pipeline_keeps_charge_and_rejection_refunds(settings, image_
         assert client.get(f"/api/jobs/{first['id']}").json()["state"] == "succeeded"
         assert app.state.commerce.summary(first["owner_id"])["balance_cents"] == before
         client.headers["Idempotency-Key"] = "pose-review-request"
+        photo = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
         second = client.post("/api/jobs", json={"front": photo["id"]}).json()
         job = app.state.store.job(second["id"])
         job["state"] = "awaiting_review"

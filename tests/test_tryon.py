@@ -1,6 +1,5 @@
 import httpx
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -89,27 +88,30 @@ def test_tryon_provider_surfaces_ark_error_code(settings, store):
     assert "模型尚未开通；请在方舟控制台开通该模型" in message
 
 
-def test_tryon_accepts_partial_views_and_rejects_invalid_views(settings, store, image_bytes):
+def test_tryon_accepts_partial_views_and_rejects_invalid_views(settings, image_bytes):
     settings = settings.model_copy(update={
         "seedream_endpoint": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
         "seedream_api_key": SecretStr("test-only"),
     })
     app = create_app(settings, start_worker=False)
-    create = next(route.endpoint for route in app.routes
-                  if getattr(route, "path", None) == "/api/tryons" and "POST" in route.methods)
-    payload = {"person": {"front": store.test_image}, "garment": {"back": store.test_image}}
-    job = create(TryOnRequest(**payload))
-    app.state.tryon_worker.provider.generate = lambda paths, prompt, model: image_bytes
-    app.state.tryon_worker.run_job(job)
-    assert len(app.state.tryons.get(job["id"])["results"]) == 6
-    for invalid in ({"person": {}, "garment": payload["garment"]},
-                    {"person": {"overhead": store.test_image}, "garment": payload["garment"]}):
-        with pytest.raises(HTTPException) as exc:
-            create(TryOnRequest(**invalid))
-        assert exc.value.status_code == 422
+    with fund_client(TestClient(app, base_url="http://localhost:8000")) as client:
+        asset = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
+        payload = {"person": {"front": asset["id"]}, "garment": {"back": asset["id"]}}
+        created = client.post("/api/tryons", json=payload)
+        assert created.status_code == 201, created.text
+        job = created.json()
+        app.state.tryon_worker.providers["seedream"].generate = (
+            lambda paths, prompt, model: image_bytes
+        )
+        app.state.tryon_worker.run_job(job)
+        assert len(app.state.tryons.get(job["id"])["results"]) == 6
+        for invalid in ({"person": {}, "garment": payload["garment"]},
+                        {"person": {"overhead": asset["id"]}, "garment": payload["garment"]}):
+            response = client.post("/api/tryons", json=invalid)
+            assert response.status_code == 422
 
 
-def test_tryon_model_selection(settings, store):
+def test_tryon_model_selection(settings, image_bytes):
     settings = settings.model_copy(update={
         "flux_endpoint": "https://api.bfl.ai/v1/flux-2-pro",
         "flux_api_key": SecretStr("test-only"),
@@ -117,18 +119,26 @@ def test_tryon_model_selection(settings, store):
         "gpt_image_api_key": SecretStr("test-only"),
     })
     app = create_app(settings, start_worker=False)
-    capabilities = next(route.endpoint for route in app.routes if getattr(route, "path", None) == "/api/capabilities")
-    create = next(route.endpoint for route in app.routes
-                  if getattr(route, "path", None) == "/api/tryons" and "POST" in route.methods)
+    capabilities = next(
+        route.endpoint for route in app.routes
+        if getattr(route, "path", None) == "/api/capabilities"
+    )
     assert capabilities()["tryon_providers"] == {
         "seedream": False, "flux": True, "flux_max": False, "flux_klein": False,
         "flux_klein_9b": False, "gpt_image": True,
     }
-    for provider, model in (("flux", "flux-2-pro"), ("gpt_image", "gpt-image-2")):
-        job = create(TryOnRequest(provider=provider, person={"front": store.test_image},
-                                  garment={"front": store.test_image}))
-        assert job["model"] == model
-        assert job["provider"] == provider
+    with fund_client(TestClient(app, base_url="http://localhost:8000")) as client:
+        asset = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
+        for provider, model in (("flux", "flux-2-pro"), ("gpt_image", "gpt-image-2")):
+            created = client.post("/api/tryons", json={
+                "provider": provider,
+                "person": {"front": asset["id"]},
+                "garment": {"front": asset["id"]},
+            })
+            assert created.status_code == 201, created.text
+            job = created.json()
+            assert job["model"] == model
+            assert job["provider"] == provider
 
 
 def test_missing_angle_uses_nearest_reference():
@@ -298,15 +308,13 @@ def test_flux_klein_worker_uses_at_most_four_references(settings, store, image_b
     ("flux_klein_9b", "flux.2-klein-4b", False),
 ])
 def test_flux_klein_job_requires_loaded_remote_model(
-    settings, store, monkeypatch, variant, remote_model, ready,
+    settings, image_bytes, monkeypatch, variant, remote_model, ready,
 ):
     settings = settings.model_copy(update={
         f"{variant}_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
         f"{variant}_api_key": SecretStr("test-only"),
     })
     app = create_app(settings, start_worker=False)
-    create = next(route.endpoint for route in app.routes
-                  if getattr(route, "path", None) == "/api/tryons" and "POST" in route.methods)
     health_path = "flux-klein-9b" if variant == "flux_klein_9b" else "flux-klein"
     health = next(route.endpoint for route in app.routes
                   if getattr(route, "path", None) == f"/api/tryon-providers/{health_path}/health")
@@ -329,15 +337,19 @@ def test_flux_klein_job_requires_loaded_remote_model(
 
     monkeypatch.setattr("itp.api.httpx.Client", HealthClient)
     assert health()["ready"] is ready
-    request = TryOnRequest(provider=variant, person={"front": store.test_image},
-                           garment={"front": store.test_image})
-    if not ready:
-        with pytest.raises(HTTPException) as error:
-            create(request)
-        assert error.value.status_code == 503
-        assert app.state.tryons.list() == []
-    else:
-        assert create(request)["model"] == settings.tryon_model_for(variant)
+    with fund_client(TestClient(app, base_url="http://localhost:8000")) as client:
+        asset = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
+        created = client.post("/api/tryons", json={
+            "provider": variant,
+            "person": {"front": asset["id"]},
+            "garment": {"front": asset["id"]},
+        })
+        if not ready:
+            assert created.status_code == 503
+            assert app.state.tryons.list() == []
+        else:
+            assert created.status_code == 201, created.text
+            assert created.json()["model"] == settings.tryon_model_for(variant)
 
 
 @pytest.mark.parametrize("provider", ["seedream", "flux", "flux_max", "gpt_image"])

@@ -226,6 +226,8 @@ def recommend(
     season: str | None = None,
     occasion: str | None = None,
     limit: int = 6,
+    body_profile: dict | None = None,
+    use_stored_profile: bool = True,
 ) -> dict[str, Any]:
     """Assemble the whole ``GET /api/outfits`` body, measurements first.
 
@@ -236,7 +238,9 @@ def recommend(
         store, job_id=job_id, asset_id=asset_id, style=style, season=season,
         occasion=occasion, limit=limit,
     )
-    profile = merchants.body_profile(job_id) if merchants else None
+    profile = body_profile
+    if profile is None and use_stored_profile and merchants:
+        profile = merchants.body_profile(job_id)
     inputs = body_inputs(profile, report["analysis"])
     report["analysis"]["body"] = normalize_body(inputs)
     if not merchants:

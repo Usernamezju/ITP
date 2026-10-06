@@ -20,7 +20,7 @@ class MemoryDatabase:
 
     def __init__(self):
         self.uri = f"file:itp-{uuid4().hex}?mode=memory&cache=shared"
-        self.anchor = self.connect()
+        self.anchor = sqlite3.connect(self.uri, uri=True, timeout=10, check_same_thread=False)
 
     def connect(self):
         return sqlite3.connect(self.uri, uri=True, timeout=10)
@@ -141,7 +141,6 @@ class TransientStore(Store):
         previous = (getattr(self.context, "scope", None), getattr(self.context, "owner", None))
         self.context.scope, self.context.owner = scope, owner
         try:
-            self.checkpoint()
             yield
         finally:
             self.context.scope, self.context.owner = previous
@@ -162,6 +161,10 @@ class TransientStore(Store):
             path.unlink(missing_ok=True)
         self.buffers.pop(asset_id, None)
         self.touched.pop(asset_id, None)
+
+    def discard(self, asset_id):
+        with self.guard:
+            self._delete(asset_id)
 
     def finish(self, scope, keep=()):
         with self.guard:

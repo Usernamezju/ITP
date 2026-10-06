@@ -200,7 +200,7 @@ def create_garment(client, token, images=(), **overrides):
 
 
 def asset_files(settings):
-    root = settings.data_dir / "assets"
+    root = settings.data_dir / "commercial" / "assets"
     return sorted(path.name for path in root.glob("*")) if root.is_dir() else []
 
 

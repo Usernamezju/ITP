@@ -24,6 +24,15 @@ Blob URL 只在当前页面内有效，重新打开时从 IndexedDB 创建，不
 访问方式；只有完整切换资产/任务/推荐接口、浏览器调用及权限测试后，才能
 移除共享工作台 gate。具体完成状态见 `docs/PLAN.md`。
 
+服务端调用链已切换：`POST /api/assets`、`/api/face-photos`、`/api/model-assets`
+直接写入 RAM 元数据并绑定账号；任务、试穿与脸部精修在结束时删除工作文件，
+只把结果留在 RAM 交付缓冲，浏览器调用 `/api/jobs/{id}/acknowledge`、
+`/api/tryons/{id}/acknowledge`、`/api/face-refinements/{id}/acknowledge` 后连同
+任务记录一起删除。`POST /api/outfits/recommend` 接受浏览器当次上传的 GLB 与
+人体指标，计算完成后立即删除模型，不读取服务端 `body_profiles`。商户商品图
+继续写入独立持久目录 `data/commercial`。`/api/body-profile` 接口暂时保留以
+兼容旧页面，待浏览器接线完成后随 gate 一并处理。
+
 旧 `studio.sqlite3`、试穿/精修数据库、`body_profiles` 和备份不能无授权清空，
 也不能自动归属第一个注册用户。切换时应停止网页读取旧共享记录，并只迁移
 商户商品图。旧顾客记录的受保护导出/删除由拥有者确认后处理，未处理的

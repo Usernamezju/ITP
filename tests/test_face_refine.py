@@ -48,24 +48,25 @@ def test_highres_face_photo_and_refinement_workflow(settings):
         return glb_bytes(), report
 
     app.state.face_worker.provider.refine = fake_refine
-    store = app.state.store
-    mesh_id, mesh_path = store.new_asset_path("glb")
-    mesh_path.write_bytes(glb_bytes())
-    store.add_asset(mesh_id, mesh_path, "model", format="GLB")
-    source = store.create_job({"name": "模型", "front": "f" * 32})
-    source["state"] = "succeeded"
-    source["artifacts"].append(
-        {
-            "asset_id": mesh_id,
-            "stage": "geometry",
-            "format": "GLB",
-            "index": 0,
-        }
-    )
-    store.save_job(source)
 
     with TestClient(app, base_url="http://localhost:8000") as client:
-        fund_client(client, existing_jobs=True)
+        fund_client(client)
+        store = app.state.store
+        owner = app.state.merchants.merchant_by_name("model-tester")["id"]
+        mesh_id, mesh_path = store.new_asset_path("glb")
+        mesh_path.write_bytes(glb_bytes())
+        store.add_asset(mesh_id, mesh_path, "model", format="GLB", owner_id=owner)
+        source = store.create_job({"name": "模型", "front": "f" * 32}, owner_id=owner)
+        source["state"] = "succeeded"
+        source["artifacts"].append(
+            {
+                "asset_id": mesh_id,
+                "stage": "geometry",
+                "format": "GLB",
+                "index": 0,
+            }
+        )
+        store.save_job(source)
         uploaded = client.post("/api/face-photos", files={"file": ("photo.jpg", highres_photo())})
         assert uploaded.status_code == 201, uploaded.text
         photo = uploaded.json()

@@ -76,7 +76,7 @@ class TryOnStore:
                 (job["id"], job["state"], job["created"], json.dumps(job)),
             )
 
-    def create(self, request: TryOnRequest, model: str) -> dict:
+    def create(self, request: TryOnRequest, model: str, owner_id=None) -> dict:
         job = {
             "id": uuid4().hex,
             "name": request.name,
@@ -88,6 +88,7 @@ class TryOnStore:
             "results": {},
             "active_view": None,
             "error": None,
+            "owner_id": owner_id,
         }
         self.save(job)
         return job
@@ -334,10 +335,17 @@ class TryOnWorker:
         self.stop = threading.Event()
 
     def run_job(self, job: dict):
+        with self.assets.processing(job["id"], job.get("owner_id")):
+            self._run_job(job)
+
+    def _run_job(self, job: dict):
         job["state"] = "running"
         self.jobs.save(job)
         try:
             for view, label in zip(VIEWS, LABELS, strict=True):
+                self.assets.checkpoint()
+                if time.time() - job["created"] > self.settings.task_timeout_seconds:
+                    raise ValueError("试穿任务已超时")
                 if self.stop.is_set():
                     return
                 if view in job["results"]:
@@ -408,6 +416,9 @@ class TryOnWorker:
             )
             self.jobs.save(job)
             logger.warning("Try-on %s failed (%s)", job["id"], type(exc).__name__)
+        finally:
+            if job["state"] in {"ready", "failed", "cancelled"}:
+                self.assets.finish(job["id"], job["results"].values())
 
     def run_forever(self):
         for job in self.jobs.list():

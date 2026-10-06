@@ -179,7 +179,7 @@ def test_flux_max_settings_are_independent_and_persisted(tmp_path, image_bytes):
                         flux_api_key="pro-test-secret")
     env_file = tmp_path / ".env"
     app = create_app(settings, start_worker=False, config_path=env_file)
-    with TestClient(app, base_url="http://localhost:8000") as client:
+    with fund_client(TestClient(app, base_url="http://localhost:8000")) as client:
         public = client.get("/api/settings").json()
         assert public["flux_max_endpoint"] == ""
         assert public["flux_max_model"] == "flux-2-max"

@@ -7,12 +7,13 @@ import tempfile
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -23,9 +24,9 @@ from itp.accounts import AccountProfileUpdate, AccountRegisterRequest, AuthLimit
 from itp.config import BFL_PROVIDERS, KLEIN_PROVIDERS, Settings
 from itp.face_refine import (
     FaceRefineRequest,
-    FaceRefineStore,
     FaceRefineWorker,
     prepare_face_photo,
+    valid_glb,
 )
 from itp.garments import (
     MAX_GARMENT_IMAGES,
@@ -76,14 +77,34 @@ from itp.provider_settings import (
     save_provider_settings,
     validate_provider_update,
 )
+from itp.private_jobs import PrivateFaceStore, PrivateTryOnStore
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
-from itp.tryon import VIEWS, TryOnRequest, TryOnStore, TryOnWorker
+from itp.tryon import VIEWS, TryOnRequest, TryOnWorker
+from itp.transient import TransientStore
 from itp.wardrobe import CATALOG, DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT
 
 
 class ReviewRequest(BaseModel):
     approve: bool
+
+
+class OutfitRecommendRequest(BaseModel):
+    """A recommendation scored from data the browser holds, not the server.
+
+    ``asset_id`` points at a GLB the customer just uploaded and ``measurements``
+    carries the numbers typed on the modelling page; neither is stored, and the
+    file is deleted once the answer is assembled.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: str | None = None
+    measurements: dict[str, Any] | None = None
+    style: str | None = None
+    season: str | None = None
+    occasion: str | None = None
+    limit: int = Field(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT)
 
 
 # --- merchant accounts -------------------------------------------------------
@@ -93,10 +114,14 @@ MERCHANT_NAME = re.compile(r"^[a-zA-Z0-9_-]{3,32}$")
 # Multipart bodies may carry up to eight images, so the merchant upload routes
 # get a larger (still bounded) cap than the single-image routes.  Existing
 # paths keep the original limit.
-UPLOAD_PATHS = {"/api/assets", "/api/face-photos", "/api/merchant/garments"}
+UPLOAD_PATHS = {"/api/assets", "/api/face-photos", "/api/model-assets", "/api/merchant/garments"}
 MERCHANT_IMAGE_PATH = re.compile(r"^/api/merchant/garments/[0-9a-zA-Z]+/images$")
 MERCHANT_BODY_LIMIT = MAX_GARMENT_IMAGES * MAX_UPLOAD + 65536
 DEFAULT_BODY_LIMIT = MAX_UPLOAD + 65536
+# A customer may score one recommendation against a large local GLB; the file
+# is temporary and deleted as soon as the calculation finishes.
+MAX_MODEL_UPLOAD = 150 * 1024 * 1024
+MODEL_BODY_LIMIT = MAX_MODEL_UPLOAD + 65536
 
 
 class MerchantRegisterRequest(BaseModel):
@@ -287,25 +312,35 @@ def create_app(
     config_path: Path = Path(".env"),
 ) -> FastAPI:
     settings = settings or Settings()
-    store = Store(settings.data_dir)
+    store = TransientStore(settings.data_dir)
+    commercial_assets = Store(settings.data_dir / "commercial")
     segmenter = Segmenter(settings.segmentation_model)
     pipeline = Pipeline(store, settings)
-    tryons = TryOnStore(store.root)
+    tryons = PrivateTryOnStore()
     tryon_worker = TryOnWorker(store, tryons, settings)
-    face_jobs = FaceRefineStore(store.root)
+    face_jobs = PrivateFaceStore()
     face_worker = FaceRefineWorker(store, face_jobs, settings)
-    merchants = MerchantStore(store.root, settings)
+    merchants = MerchantStore(settings.data_dir, settings)
     pipeline.commerce = merchants.commerce
     settings_lock = threading.Lock()
     face_lock = threading.Lock()
     auth_limiter = AuthLimiter()
+    janitor_stop = threading.Event()
+
+    def janitor():
+        while not janitor_stop.wait(1):
+            for task_id in store.reap(settings.task_timeout_seconds):
+                merchants.commerce.finish_model(task_id, succeeded=False, valid_result=False)
+                tryons.delete(task_id)
+                face_jobs.delete(task_id)
 
     @asynccontextmanager
     async def lifespan(app):
-        lock = FileLock(str(store.root / "worker.lock"))
+        lock = FileLock(str(settings.data_dir / "worker.lock"))
         thread = None
         tryon_thread = None
         face_thread = None
+        janitor_thread = None
         if start_worker:
             try:
                 lock.acquire(timeout=0)
@@ -313,7 +348,10 @@ def create_app(
                 raise RuntimeError(
                     "ITP already uses this data directory; run one worker only"
                 ) from exc
+            store.sweep_stale()
             merchants.commerce.reconcile_models(store.job, pipeline.has_valid_result)
+            janitor_thread = threading.Thread(target=janitor, daemon=True, name="itp-cleanup")
+            janitor_thread.start()
             thread = threading.Thread(target=pipeline.run_forever, daemon=True, name="itp-worker")
             thread.start()
             tryon_thread = threading.Thread(
@@ -334,10 +372,16 @@ def create_app(
                 await asyncio.to_thread(thread.join)
                 await asyncio.to_thread(tryon_thread.join)
                 await asyncio.to_thread(face_thread.join)
+                janitor_stop.set()
+                await asyncio.to_thread(janitor_thread.join)
                 lock.release()
+            for job in store.jobs(active=True):
+                merchants.commerce.finish_model(job["id"], succeeded=False, valid_result=False)
+            store.close()
 
     app = FastAPI(title="ITP Studio API", version="0.1.0", lifespan=lifespan)
     app.state.store = store
+    app.state.commercial_assets = commercial_assets
     app.state.pipeline = pipeline
     app.state.tryons = tryons
     app.state.tryon_worker = tryon_worker
@@ -416,13 +460,18 @@ def create_app(
         if request.method == "POST" and is_upload and size is None:
             return JSONResponse({"detail": "上传图片需要 Content-Length 请求头"}, status_code=411)
         if size:
-            limit = MERCHANT_BODY_LIMIT if is_upload else DEFAULT_BODY_LIMIT
+            temporary = request.url.path in {"/api/model-assets", "/api/outfits/recommend"}
+            limit = MODEL_BODY_LIMIT if temporary else (
+                MERCHANT_BODY_LIMIT if is_upload else DEFAULT_BODY_LIMIT)
             if not size.isdigit() or int(size) > limit:
                 return JSONResponse({"detail": "请求体过大或长度无效"}, status_code=413)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if request.url.path == "/api/settings" or request.url.path.startswith(("/api/auth/", "/api/account/", "/api/merchant/", "/api/jobs")):
+        private_paths = ("/api/auth/", "/api/account/", "/api/merchant/", "/api/jobs",
+                         "/api/assets", "/api/face-", "/api/tryons", "/api/model-assets")
+        if (request.url.path == "/api/settings" or request.url.path == "/api/outfits/recommend"
+                or request.url.path.startswith(private_paths)):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -522,7 +571,8 @@ def create_app(
             return public_settings(updated)
 
     @app.post("/api/assets", status_code=201)
-    async def upload(file: UploadFile = File(...), remove_background: bool = Query(False)):
+    async def upload(file: UploadFile = File(...), remove_background: bool = Query(False),
+                     user: dict = Depends(current_user)):
         try:
             data = await file.read(MAX_UPLOAD + 1)
         finally:
@@ -546,11 +596,12 @@ def create_app(
             width=image.width,
             height=image.height,
             background_removed=remove_background,
+            owner_id=user["id"],
         )
         return public_asset(asset)
 
     @app.post("/api/face-photos", status_code=201)
-    async def upload_face_photo(file: UploadFile = File(...)):
+    async def upload_face_photo(file: UploadFile = File(...), user: dict = Depends(current_user)):
         try:
             data = await file.read(MAX_UPLOAD + 1)
         finally:
@@ -562,28 +613,51 @@ def create_app(
         asset_id, path = store.new_asset_path("png")
         image.save(path, format="PNG")
         return public_asset(store.add_asset(
-            asset_id, path, "face_photo", width=image.width, height=image.height
+            asset_id, path, "face_photo", owner_id=user["id"],
+            width=image.width, height=image.height,
         ))
 
-    @app.get("/api/assets/{asset_id}")
-    def get_asset(asset_id: str):
+    @app.post("/api/model-assets", status_code=201)
+    async def upload_model_asset(file: UploadFile = File(...), user: dict = Depends(current_user)):
+        """A customer GLB, kept only long enough to score one recommendation."""
+        try:
+            data = await file.read(MAX_MODEL_UPLOAD + 1)
+        finally:
+            await file.close()
+        if len(data) > MAX_MODEL_UPLOAD:
+            raise HTTPException(422, f"模型文件不能超过 {MAX_MODEL_UPLOAD // (1024 * 1024)} MiB")
+        if not valid_glb(data):
+            raise HTTPException(422, "请上传有效的 GLB 模型文件")
+        asset_id, path = store.new_asset_path("glb")
+        await asyncio.to_thread(path.write_bytes, data)
+        return public_asset(store.add_asset(
+            asset_id, path, "model", format="GLB", owner_id=user["id"]
+        ))
+
+    def owned_asset(asset_id, user):
         asset = store.asset(asset_id)
-        if not asset:
-            raise HTTPException(404, "资产不存在")
-        return public_asset(asset)
+        if not asset or asset.get("owner_id") != user["id"]:
+            raise HTTPException(404, "资产不存在或已过期")
+        return asset
+
+    @app.get("/api/assets/{asset_id}")
+    def get_asset(asset_id: str, user: dict = Depends(current_user)):
+        return public_asset(owned_asset(asset_id, user))
 
     @app.get("/api/assets/{asset_id}/file")
-    def get_file(asset_id: str, download: bool = False):
-        asset = store.asset(asset_id)
-        if not asset:
-            raise HTTPException(404, "资产不存在")
-        path = store.path(asset_id)
-        if not path.is_file():
-            raise HTTPException(404, "资产文件已丢失")
+    def get_file(asset_id: str, download: bool = False, user: dict = Depends(current_user)):
+        asset = owned_asset(asset_id, user)
         media = {"GLB": "model/gltf-binary", "PNG": "image/png"}.get(
             asset.get("format", "PNG"), "application/octet-stream"
         )
-        return FileResponse(path, media_type=media, filename=path.name if download else None)
+        headers = {"Cache-Control": "no-store"}
+        if download:
+            suffix = asset.get("format", "png").lower()
+            headers["Content-Disposition"] = f'attachment; filename="{asset_id}.{suffix}"'
+        try:
+            return Response(store.read(asset_id), media_type=media, headers=headers)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "资产已过期") from exc
 
     @app.get("/api/jobs")
     def list_jobs(user: dict = Depends(current_user)):
@@ -598,6 +672,8 @@ def create_app(
             asset = store.asset(asset_id)
             if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
                 raise HTTPException(422, "输入图片不存在，请重新上传")
+            if asset.get("owner_id") != user["id"]:
+                raise HTTPException(404, "资产不存在或已过期")
         current = app.state.settings
         if current.tencent_model == "3.0" and any(
             view in body.views for view in ("left_front", "right_front")
@@ -635,6 +711,10 @@ def create_app(
                 raise HTTPException(409, "该请求已处理；请查看任务历史与钱包流水，勿重复扣费")
             return public_job(existing)
         try:
+            inputs = [body.front, *body.views.values()]
+            if body.pose_reference:
+                inputs.append(body.pose_reference)
+            store.pin(reservation["job_id"], user["id"], inputs)
             return public_job(store.create_job(body.model_dump(), models=models,
                 job_id=reservation["job_id"], owner_id=user["id"]))
         except Exception:
@@ -642,11 +722,11 @@ def create_app(
             raise
 
     @app.get("/api/tryons")
-    def list_tryons():
-        return tryons.list()
+    def list_tryons(user: dict = Depends(current_user)):
+        return tryons.list(user["id"])
 
     @app.post("/api/tryons", status_code=201)
-    def create_tryon(body: TryOnRequest):
+    def create_tryon(body: TryOnRequest, user: dict = Depends(current_user)):
         try:
             body.validate_views()
         except ValueError as exc:
@@ -655,24 +735,59 @@ def create_app(
             asset = store.asset(asset_id)
             if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
                 raise HTTPException(422, "输入图片不存在，请重新上传")
+            if asset.get("owner_id") != user["id"]:
+                raise HTTPException(404, "资产不存在或已过期")
         if not app.state.settings.tryon_provider_ready(body.provider):
             raise HTTPException(503, "所选平台生图服务暂不可用，请稍后再试")
         if body.provider in KLEIN_PROVIDERS and not flux_klein_health(body.provider)["ready"]:
             variant = "9B" if body.provider == "flux_klein_9b" else "4B"
             raise HTTPException(503, f"FLUX.2 Klein {variant} 服务尚未就绪；请检查健康状态")
-        return tryons.create(body, app.state.settings.tryon_model_for(body.provider))
+        job = tryons.create(body, app.state.settings.tryon_model_for(body.provider), user["id"])
+        store.pin(job["id"], user["id"], [*body.person.values(), *body.garment.values()])
+        return job
 
     @app.get("/api/tryons/{tryon_id}")
-    def get_tryon(tryon_id: str):
+    def get_tryon(tryon_id: str, user: dict = Depends(current_user)):
         job = tryons.get(tryon_id)
-        if not job:
+        if not job or job.get("owner_id") != user["id"]:
             raise HTTPException(404, "试穿任务不存在")
         return job
+
+    @app.post("/api/jobs/{job_id}/acknowledge", status_code=204)
+    def acknowledge_job(job_id: str, user: dict = Depends(current_user)):
+        """The browser saved these results locally; drop the server copies."""
+        owned_job(job_id, user)
+        acknowledge_scope(job_id, user)
+        return None
+
+    @app.post("/api/tryons/{tryon_id}/acknowledge", status_code=204)
+    def acknowledge_tryon(tryon_id: str, user: dict = Depends(current_user)):
+        tryon = tryons.get(tryon_id)
+        if not tryon or tryon.get("owner_id") != user["id"]:
+            raise HTTPException(404, "试穿任务不存在")
+        acknowledge_scope(tryon_id, user)
+        tryons.delete(tryon_id)
+        return None
+
+    @app.post("/api/face-refinements/{item_id}/acknowledge", status_code=204)
+    def acknowledge_face_refinement(item_id: str, user: dict = Depends(current_user)):
+        item = face_jobs.get(item_id)
+        if not item or item.get("owner_id") != user["id"]:
+            raise HTTPException(404, "脸部精修任务不存在")
+        acknowledge_scope(item_id, user)
+        face_jobs.delete(item_id)
+        return None
+
+    def acknowledge_scope(scope: str, user: dict):
+        try:
+            store.acknowledge(scope, user["id"])
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post("/api/tryons/{tryon_id}/continue", status_code=201)
     def continue_tryon(tryon_id: str, http_request: Request, user: dict = Depends(current_user)):
         tryon = tryons.get(tryon_id)
-        if not tryon:
+        if not tryon or tryon.get("owner_id") != user["id"]:
             raise HTTPException(404, "试穿任务不存在")
         if tryon["state"] != "ready" or set(tryon["results"]) != set(VIEWS):
             raise HTTPException(409, "六张试穿结果尚未生成完成")
@@ -705,7 +820,7 @@ def create_app(
         source = owned_job(job_id, user)
         if source["state"] != "succeeded":
             raise HTTPException(409, "请等待 3D 模型生成完成")
-        photo = store.asset(body.face_photo)
+        photo = owned_asset(body.face_photo, user)
         if not photo or photo["kind"] != "face_photo" or not store.path(body.face_photo).is_file():
             raise HTTPException(422, "请上传原始高清正面人物照片")
         if not app.state.settings.faceverse_ready:
@@ -718,8 +833,10 @@ def create_app(
             if any(item["state"] in {"queued", "running", "submitting"}
                    for item in face_jobs.for_job(job_id)):
                 raise HTTPException(409, "该模型已有进行中的脸部精修任务")
-            return face_jobs.create(job_id, body.face_photo, meshes[-1]["asset_id"],
-                                    app.state.settings.faceverse_model)
+            item = face_jobs.create(job_id, body.face_photo, meshes[-1]["asset_id"],
+                                    app.state.settings.faceverse_model, user["id"])
+            store.pin(item["id"], user["id"], [body.face_photo, meshes[-1]["asset_id"]])
+            return item
 
     @app.post("/api/jobs/{job_id}/review")
     def review_job(job_id: str, body: ReviewRequest, user: dict = Depends(current_user)):
@@ -730,6 +847,7 @@ def create_app(
             reviewed = store.review(job_id, body.approve)
             if not body.approve:
                 merchants.commerce.finish_model(job_id, succeeded=False, valid_result=False)
+                store.finish(job_id)
             return public_job(reviewed)
         except KeyError as exc:
             raise HTTPException(404, "任务不存在") from exc
@@ -759,6 +877,39 @@ def create_app(
             occasion=occasion,
             limit=limit,
         )
+
+    @app.post("/api/outfits/recommend")
+    def recommend_for_browser(body: OutfitRecommendRequest, user: dict = Depends(current_user)):
+        """Score one recommendation from data the browser uploaded just now.
+
+        The measurements and the model exist only for this request: the file is
+        deleted once the calculation finishes, whatever the outcome.
+        """
+        if body.asset_id:
+            asset = owned_asset(body.asset_id, user)
+            if asset["kind"] != "model" or not store.path(body.asset_id).is_file():
+                raise HTTPException(422, "模型文件已过期，请重新上传")
+        try:
+            measurements = (
+                normalize_body_profile(body.measurements) if body.measurements else None
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        try:
+            return recommend_outfits(
+                store,
+                merchants,
+                asset_id=body.asset_id,
+                style=body.style,
+                season=body.season,
+                occasion=body.occasion,
+                limit=body.limit,
+                body_profile=measurements,
+                use_stored_profile=False,
+            )
+        finally:
+            if body.asset_id:
+                store.discard(body.asset_id)
 
     @app.get("/api/outfits/{outfit_id}/images")
     def list_outfit_images(
@@ -947,18 +1098,18 @@ def create_app(
         stored = []
         try:
             for image in prepared:
-                asset_id, path = store.new_asset_path("png")
+                asset_id, path = commercial_assets.new_asset_path("png")
                 await asyncio.to_thread(image.save, path, "PNG")
-                store.add_asset(
+                commercial_assets.add_asset(
                     asset_id, path, "garment_image", width=image.width, height=image.height
                 )
                 stored.append(merchants.add_image(garment["id"], asset_id))
         except Exception:
             merchants.delete_garment(merchant["id"], garment["id"])
             for item in stored:
-                asset = store.asset(item["asset_id"])
+                asset = commercial_assets.asset(item["asset_id"])
                 if asset:
-                    (store.root / "assets" / asset["filename"]).unlink(missing_ok=True)
+                    (commercial_assets.root / "assets" / asset["filename"]).unlink(missing_ok=True)
             raise
         return public_garment(garment, merchants.images_for(garment["id"]))
 
@@ -1009,9 +1160,9 @@ def create_app(
         if asset_ids is None:
             raise HTTPException(404, "商品不存在")
         for asset_id in asset_ids:
-            asset = store.asset(asset_id)
+            asset = commercial_assets.asset(asset_id)
             if asset:
-                (store.root / "assets" / asset["filename"]).unlink(missing_ok=True)
+                (commercial_assets.root / "assets" / asset["filename"]).unlink(missing_ok=True)
         return None
 
     @app.post("/api/merchant/garments/{garment_id}/images", status_code=201)
@@ -1027,9 +1178,11 @@ def create_app(
         if not prepared:
             raise HTTPException(422, "请至少上传一张图片")
         for image in prepared:
-            asset_id, path = store.new_asset_path("png")
+            asset_id, path = commercial_assets.new_asset_path("png")
             await asyncio.to_thread(image.save, path, "PNG")
-            store.add_asset(asset_id, path, "garment_image", width=image.width, height=image.height)
+            commercial_assets.add_asset(
+                asset_id, path, "garment_image", width=image.width, height=image.height
+            )
             merchants.add_image(garment_id, asset_id)
         return [public_image(item) for item in merchants.images_for(garment_id)]
 
@@ -1040,9 +1193,9 @@ def create_app(
         asset_id = merchants.delete_image(merchant["id"], garment_id, image_id)
         if asset_id is None:
             raise HTTPException(404, "图片不存在")
-        asset = store.asset(asset_id)
+        asset = commercial_assets.asset(asset_id)
         if asset:
-            (store.root / "assets" / asset["filename"]).unlink(missing_ok=True)
+            (commercial_assets.root / "assets" / asset["filename"]).unlink(missing_ok=True)
         return None
 
     @app.post("/api/merchant/looks", status_code=201)
@@ -1181,10 +1334,10 @@ def create_app(
         image = merchants.image(image_id)
         if not image:
             raise HTTPException(404, "图片不存在")
-        asset = store.asset(image["asset_id"])
+        asset = commercial_assets.asset(image["asset_id"])
         if not asset:
             raise HTTPException(404, "图片不存在")
-        path = store.root / "assets" / asset["filename"]
+        path = commercial_assets.root / "assets" / asset["filename"]
         if not path.is_file():
             raise HTTPException(404, "图片文件已丢失")
         return FileResponse(

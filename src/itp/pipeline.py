@@ -27,6 +27,7 @@ class Pipeline:
         self.commerce = commerce
 
     def checkpoint(self):
+        self.store.checkpoint()
         if self.stop.is_set():
             raise Interrupted
 
@@ -211,6 +212,10 @@ class Pipeline:
         self.store.save_job(job)
 
     def run_job(self, job: dict):
+        with self.store.processing(job["id"], job.get("owner_id")):
+            self._run_job(job)
+
+    def _run_job(self, job: dict):
         try:
             job["state"] = "running"
             self.store.save_job(job)
@@ -277,7 +282,11 @@ class Pipeline:
             logger.warning("Job %s failed (%s)", job["id"], type(exc).__name__)
         finally:
             if self.commerce and job["state"] in {"succeeded", "failed", "rejected", "cancelled"}:
-                self.commerce.finish_model(job["id"], succeeded=job["state"] == "succeeded", valid_result=self.has_valid_result(job))
+                valid = job["state"] == "succeeded" and self.has_valid_result(job)
+                self.commerce.finish_model(job["id"], succeeded=job["state"] == "succeeded",
+                                           valid_result=valid)
+            if job["state"] in {"succeeded", "failed", "rejected", "cancelled"}:
+                self.store.finish(job["id"], [a["asset_id"] for a in job["artifacts"]])
 
     def run_forever(self):
         while not self.stop.is_set():

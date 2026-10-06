@@ -4,6 +4,7 @@ import struct
 
 import numpy as np
 import pytest
+from auth_helpers import fund_client
 from fastapi.testclient import TestClient
 
 from itp import wardrobe
@@ -86,20 +87,21 @@ def write_glb(tmp_path, name="body.glb", **kwargs):
 
 
 def client_for(settings):
-    return TestClient(create_app(settings, start_worker=False), base_url="http://localhost:8000")
+    app = create_app(settings, start_worker=False)
+    return fund_client(TestClient(app, base_url="http://localhost:8000"))
 
 
-def add_mesh(store, payload: bytes) -> str:
+def add_mesh(store, payload: bytes, *, owner=None) -> str:
     asset_id, path = store.new_asset_path("glb")
     path.write_bytes(payload)
-    store.add_asset(asset_id, path, "model", format="GLB")
+    store.add_asset(asset_id, path, "model", format="GLB", owner_id=owner)
     return asset_id
 
 
-def job_with_mesh(store, mesh_id: str, **request):
-    body = {"name": "穿搭测试", "front": store.test_image, "pose_mode": "t-pose"}
+def job_with_mesh(store, mesh_id: str, *, owner=None, **request):
+    body = {"name": "穿搭测试", "front": "f" * 32, "pose_mode": "t-pose"}
     body.update(request)
-    job = store.create_job(body)
+    job = store.create_job(body, owner_id=owner)
     job["artifacts"].append(
         {"asset_id": mesh_id, "format": "GLB", "stage": "geometry", "index": 0}
     )
@@ -348,10 +350,13 @@ def test_outfits_endpoint_degrades_for_unknown_references(settings, image_bytes)
         assert picture.json()["source"] == "default"
 
 
-def test_outfits_endpoint_analyses_a_job_mesh(settings, store):
-    mesh = add_mesh(store, glb_bytes())
-    job = job_with_mesh(store, mesh, pose_mode="t-pose")
+def test_outfits_endpoint_analyses_a_job_mesh(settings, image_bytes):
     with client_for(settings) as client:
+        store = client.app.state.store
+        owner = client.app.state.merchants.merchant_by_name("model-tester")["id"]
+        front = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
+        mesh = add_mesh(store, glb_bytes(), owner=owner)
+        job = job_with_mesh(store, mesh, owner=owner, pose_mode="t-pose", front=front["id"])
         body = client.get(f"/api/outfits?job_id={job['id']}").json()
         assert body["source"] == "model"
         analysis = body["analysis"]
@@ -368,9 +373,12 @@ def test_outfits_endpoint_analyses_a_job_mesh(settings, store):
         assert direct.json()["analysis"]["labels"]["pose"] == "未记录"
 
 
-def test_outfits_endpoint_survives_a_broken_mesh(settings, store):
-    job = job_with_mesh(store, add_mesh(store, b"glTF but not really"))
+def test_outfits_endpoint_survives_a_broken_mesh(settings):
     with client_for(settings) as client:
+        store = client.app.state.store
+        owner = client.app.state.merchants.merchant_by_name("model-tester")["id"]
+        job = job_with_mesh(store, add_mesh(store, b"glTF but not really", owner=owner),
+                            owner=owner)
         body = client.get(f"/api/outfits?job_id={job['id']}").json()
         assert body["source"] == "default"
         assert body["analysis"]["available"] is False

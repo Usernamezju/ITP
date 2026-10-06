@@ -1,11 +1,25 @@
 import json
 import sqlite3
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from uuid import uuid4
 
 
 class Store:
+    def processing(self, scope, owner):
+        return nullcontext()
+
+    def finish(self, scope, keep=()):
+        pass
+
+    def checkpoint(self):
+        pass
+
+    def discard(self, asset_id):
+        """Customers' temporary files only; durable stores keep everything."""
+        pass
+
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)

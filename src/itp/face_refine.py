@@ -108,7 +108,8 @@ class FaceRefineStore:
                 ),
             )
 
-    def create(self, source_job_id: str, face_photo: str, mesh_asset: str, model: str) -> dict:
+    def create(self, source_job_id: str, face_photo: str, mesh_asset: str, model: str,
+               owner_id=None) -> dict:
         item = {
             "id": uuid4().hex,
             "source_job_id": source_job_id,
@@ -120,6 +121,7 @@ class FaceRefineStore:
             "result_asset": None,
             "report": None,
             "error": None,
+            "owner_id": owner_id,
         }
         self.save(item)
         return item
@@ -213,6 +215,10 @@ class FaceRefineWorker:
         self.stop = threading.Event()
 
     def run_job(self, item: dict):
+        with self.assets.processing(item["id"], item.get("owner_id")):
+            self._run_job(item)
+
+    def _run_job(self, item: dict):
         item["state"] = "submitting"
         self.jobs.save(item)
         try:
@@ -242,6 +248,10 @@ class FaceRefineWorker:
             )
             self.jobs.save(item)
             logger.warning("Face refinement %s failed (%s)", item["id"], type(exc).__name__)
+        finally:
+            if item["state"] in {"ready", "failed", "cancelled"}:
+                keep = [item["result_asset"]] if item["result_asset"] else []
+                self.assets.finish(item["id"], keep)
 
     def run_forever(self):
         for item in self.jobs.active():
