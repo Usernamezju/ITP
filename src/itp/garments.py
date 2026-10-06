@@ -708,6 +708,8 @@ class MerchantStore:
                 conn.execute("ALTER TABLE garments ADD COLUMN purchase_url TEXT")
         from itp.commerce import CommerceStore
         self.commerce = CommerceStore(self, settings)
+        from itp.product_clicks import ProductClicks
+        self.clicks = ProductClicks(self)
 
     @staticmethod
     def _schema_accepts_admin(conn) -> bool:
@@ -730,6 +732,9 @@ class MerchantStore:
         conn.commit()
         with sqlite3.connect(backup) as target:
             conn.backup(target)
+        # A later additive analytics table references the credential table.
+        # Disable enforcement only while replacing the same parent IDs.
+        conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("BEGIN IMMEDIATE")
         try:
             conn.execute(
@@ -751,9 +756,13 @@ class MerchantStore:
         except Exception:
             conn.execute("ROLLBACK")
             raise
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
 
     def connect(self):
-        return sqlite3.connect(self.db, timeout=10)
+        conn = sqlite3.connect(self.db, timeout=10)
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
 
     # ------------------------------------------------------------------ merchants
 

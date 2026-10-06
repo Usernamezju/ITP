@@ -272,3 +272,29 @@ API 启动在写事务内检查 `PRAGMA table_info(garments)`，仅新增 nullab
 `purchase_url TEXT` 列；旧行默认为 null。该列是读取时的权威值，新增/编辑
 与指标 JSON 同事务写入。迁移可重复运行，不重建或清空账号、商品、钱包、
 订单、会员或任务。升级前使用 SQLite 在线备份 API 备份原库。
+
+## 点击统计与商家数据概览
+
+- `POST /api/garments/{id}/clicks`：公开购买入口，201 返回 `click_id` 和当前
+  `purchase_url`。服务端在写事务内检查发布状态、链接和真实归属；缺失、草稿、
+  无链接返回 404，数据库忙返回 503。匿名点击不获得任何账号权限。
+- `GET /api/merchant/analytics?limit=20&offset=0&days=14`：商家 JWT，返回
+  `summary: {today, month, total}`、分页商品 `items[].clicks` 和补零日趋势
+  `trend: [{date, clicks}]`。`days` 为 1–31，可传 `garment_id` 查询单件；
+  非本商家商品一律 404。商家 ID 只取已验证 JWT 的数据库账号，不接受客户端指定。
+- 今日/本月以 `Asia/Shanghai` 的 00:00/每月 1 日划分；累计包含已删除商品的
+  历史点击。统计的是点击次数，不是独立访客、成交量或转化率。
+
+启动时幂等新增 `garment_clicks`：`id TEXT PRIMARY KEY`、`garment_id` 外键
+（商品删除时 SET NULL）、`garment_ref TEXT NOT NULL` 保存原商品 ID、
+`merchant_id NOT NULL` 外键、`clicked_at INTEGER NOT NULL` Unix 秒。
+`(merchant_id, clicked_at)` 与 `(merchant_id, garment_ref, clicked_at)` 索引
+支撑日/月/商品查询。SQLite 连接启用外键；原账号角色迁移仍先备份并保留 ID。
+旧表和资金数据不清空。
+
+商家页面展示三项 KPI，展开明细查看商品图、名称、链接、每件点击和 14 天趋势；
+支持刷新与分页。前端顾客购买按钮先发点击接口，再到安全新标签页，清除 opener
+并设置 noreferrer/no-referrer；不会把 JWT 发往外站。超时或统计失败给出提示
+后仍允许查看原先验证的链接；已下架（404）停止跳转。弹窗受阻时提供已记录尝试
+后的安全链接。点击接口有进程内每来源 120 次/分钟的限流，不持久记录 IP、账号、
+来源页面、照片或人体指标；不能据此保证防刷或跨进程去重。

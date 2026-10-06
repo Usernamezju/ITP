@@ -15,6 +15,7 @@ import {
   updateGarment, updateLook,
 } from './merchantApi';
 import './MerchantPage.css';
+import { MerchantAnalytics } from './MerchantAnalytics';
 
 /**
  * The merchant console.  A shop signs in, imports garments by filling the same
@@ -823,6 +824,9 @@ export function MerchantPage() {
 
     {notice && <div className="error-banner" role="alert">{notice}
       <button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
+
+    {(view === 'goods' || view === 'looks') && <MerchantAnalytics
+      revision={garments.map((item) => `${item.id}:${item.updated}`).join(',')} />}
 
     {view === 'account' ? <AccountPanel profile={profile} onError={setNotice}
       onCancel={() => setView('goods')}

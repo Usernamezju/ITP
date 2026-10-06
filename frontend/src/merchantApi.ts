@@ -72,6 +72,18 @@ export function fetchProfile(): Promise<MerchantProfile> {
   return api<MerchantProfile>('/api/merchant/me', { headers: authHeaders() });
 }
 
+export type ClickCounts = { today: number; month: number; total: number };
+export type MerchantAnalytics = {
+  summary: ClickCounts; timezone: string; total: number;
+  items: (MerchantGarment & { clicks: ClickCounts })[];
+  trend: { date: string; clicks: number }[];
+};
+
+export function fetchAnalytics(offset = 0): Promise<MerchantAnalytics> {
+  return api<MerchantAnalytics>(`/api/merchant/analytics?limit=20&offset=${offset}`,
+    { headers: authHeaders() });
+}
+
 /**
  * Changing the password revokes every token issued before it, including the one
  * this request used, so the caller must sign in again afterwards.

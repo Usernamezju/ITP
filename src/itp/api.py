@@ -395,6 +395,8 @@ def create_app(
     app.state.settings = settings
     app.state.payments = PaymentService(merchants, settings)
     app.include_router(payment_router(app.state.payments))
+    from itp.product_clicks import click_router
+    app.include_router(click_router(merchants))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
     def flux_klein_health(provider: str = "flux_klein") -> dict:
