@@ -6,6 +6,8 @@
 
 本地图片上传、可选 CPU 去背景、多视角输入、姿势设置、持久任务流程、GLB 预览与历史列表。云端适配器覆盖千问姿势编辑、混元几何、智能拓扑、PBR 纹理、自动绑骨与 FBX 转换，且等待真实服务配置和样例验收。穿搭推荐解析图生 3D 产出的 GLB，估算肩宽、腰线、胯宽与腿身比，再从本地精选目录按比例给出成套穿搭；尚未生成模型时按通用体型推荐。每套穿搭会从图片检索服务取真实穿搭图片并缓存在本机，默认使用免 key 的 360 图片，可在设置页切换到 Unsplash 或 Pixabay，取不到图片时回落到配色示意。
 
+穿搭推荐同时支持**按尺码指标匹配**：「人体建模」页可以选填身高、体重、肩宽、胸围、腰围、臀围（不填也能用，未填项由模型比例推算并标注「估算」）；服装侧由商家录入，指标包含尺寸、适配区间与版型/弹性/克重/主色等属性。推荐结果逐维度给出「你的数值 / 该款区间 / 合身状态 / 中文理由」，而不是只有标签和分数。商家用左侧导航的**「商家后台」**页面注册登录、上传商品图并填写指标；同一套契约也开放为 HTTP 接口，供第三方系统接入。详见 [指标与匹配规范](docs/modules/METRICS.md) 与 [商家接口](docs/modules/MERCHANT.md)。
+
 API 字段默认留空。可在网页左侧的“设置”页面填写并保存，配置写入本地未跟踪的 `.env`，立即生效；页面只显示密钥是否已填写，不会回显密钥。也可参照 [`.env.example`](.env.example) 手动编辑 `.env`，手动编辑后需重启服务。没有 API 时仍可使用上传、去背景和导入本地 GLB 的功能。
 
 ## 本地运行
@@ -45,6 +47,8 @@ npm run build --prefix frontend
 - [六视图图生 3D](docs/modules/SIX_VIEWS.md)
 - [SeedDream 虚拟试穿](docs/modules/TRYON.md)
 - [穿搭推荐](docs/modules/OUTFITS.md)
+- [指标与匹配规范](docs/modules/METRICS.md)
+- [商家接口](docs/modules/MERCHANT.md)
 - [FaceVerse 远程脸部精修](docs/modules/FACE_REFINEMENT.md)
 - [模型与处理模块](docs/modules/GEOMETRY.md)
 - [开发规范](CONTRIBUTING.md)

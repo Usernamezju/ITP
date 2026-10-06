@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     image_provider: str = "so"
     unsplash_access_key: SecretStr = SecretStr("")
     pixabay_api_key: SecretStr = SecretStr("")
+    jwt_secret: SecretStr = SecretStr("")
+    merchant_token_hours: int = Field(default=12, ge=1, le=720)
+    merchant_quota: int = Field(default=200, ge=0, le=100000)
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
 

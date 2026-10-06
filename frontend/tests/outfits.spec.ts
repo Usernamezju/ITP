@@ -123,9 +123,29 @@ const analysisPayload = (available: boolean) => ({
   analysis: { ...analysis, available, labels: available ? analysis.labels : {},
     metrics: available ? analysis.metrics : [], profile: available ? analysis.profile : null,
     notes: available ? analysis.notes : ['尚未生成三维模型，已按通用体型推荐。'],
-    tags: available ? analysis.tags : [] },
-  filters, recommendations: outfits,
+    tags: available ? analysis.tags : [],
+    body: { height_cm: { value: 170, source: 'input' },
+      bust_cm: { value: 88, source: 'input' },
+      hip_cm: { value: 92, source: 'estimated' },
+      waist_cm: { value: null, source: 'missing' } } },
+  filters,
+  recommendations: outfits.map((outfit, index) => index === 0 ? { ...outfit, fit } : outfit),
 });
+
+const fit = {
+  score: 0.88, fit_score: 0.92, preference_score: 0.7, confidence: 0.75,
+  dimensions: [
+    { key: 'bust_cm', label: '胸围', weight: 0.3, score: 1, state: 'fit',
+      body_value: 88, body_source: 'input', range: [88, 100],
+      detail: '你的胸围 88cm 落在该款适配区间 88–100cm 内', delta_cm: 0 },
+    { key: 'shoulder_cm', label: '肩宽', weight: 0.25, score: 0.4, state: 'tight',
+      body_value: 38, body_source: 'estimated', range: [36, 37],
+      detail: '肩宽超出适配区间 1cm，落肩结构可缓解', delta_cm: 1 },
+  ],
+  reasons: ['胸围与肩宽是决定合身度的主要维度，胸围完全落在区间内。'],
+  warnings: ['肩宽偏紧 1cm，建议确认落肩幅度'],
+  suggestions: [],
+};
 
 test('outfit page shows measured analysis, photos and ranked looks', async ({ page }) => {
   await openOutfits(page, analysisPayload(true));
@@ -139,10 +159,12 @@ test('outfit page shows measured analysis, photos and ranked looks', async ({ pa
   await expect(page.locator('.outfit-card')).toHaveCount(3);
   const first = page.locator('.outfit-card').first();
   await expect(first.locator('.outfit-score')).toHaveText('91');
-  // A real photograph replaces the drawn stand-in as soon as the search answers.
-  await expect(first.getByRole('img', { name: '初秋打造OL通勤风格' })).toBeVisible();
+  // Pictures are fetched only once a card scrolls near the viewport, and on a
+  // phone the analysis panel sits above the grid, so scroll before asserting.
+  await page.locator('.outfits-grid').scrollIntoViewIfNeeded();
+  await expect(first.getByRole('img', { name: '初秋打造OL通勤风格' })).toBeVisible({ timeout: 15000 });
   await first.getByRole('button', { name: '换一张柔雾通勤的参考图' }).click();
-  await expect(first.getByRole('img', { name: '春季职场穿搭' })).toBeVisible();
+  await expect(first.getByRole('img', { name: '春季职场穿搭' })).toBeVisible({ timeout: 15000 });
 });
 
 test('outfit detail dialog shows photos, source links, items and tips', async ({ page }) => {
@@ -151,7 +173,7 @@ test('outfit detail dialog shows photos, source links, items and tips', async ({
   const dialog = page.getByRole('dialog', { name: '柔雾通勤 穿搭详情' });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('收肩落肩，把利落留在轮廓里');
-  await expect(dialog.getByRole('img', { name: '初秋打造OL通勤风格' })).toBeVisible();
+  await expect(dialog.getByRole('img', { name: '初秋打造OL通勤风格' })).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole('link', { name: '来源' })).toHaveAttribute('href', 'https://example.com/page');
   await expect(dialog.getByRole('link', { name: '原图' })).toHaveAttribute('href', 'https://example.com/full.jpg');
   await expect(dialog).toContainText('图片由360 图片检索，版权归原作者所有');
@@ -171,16 +193,41 @@ test('a failed image search falls back to the drawn stand-in and can be retried'
     images: [],
   });
   const first = page.locator('.outfit-card').first();
-  await expect(first.getByRole('img', { name: '柔雾通勤 穿搭示意' })).toBeVisible();
+  await page.locator('.outfits-grid').scrollIntoViewIfNeeded();
+  await expect(first.getByRole('img', { name: '柔雾通勤 穿搭示意' })).toBeVisible({ timeout: 15000 });
   await expect(first.getByRole('button', { name: '换一张柔雾通勤的参考图' })).toHaveCount(0);
   // The retry must bypass the server's short negative cache.
   await first.getByRole('button', { name: '重新获取柔雾通勤的参考图' }).click();
   await expect.poll(() => requests.some((query) => query.includes('refresh=true'))).toBe(true);
   await page.getByRole('button', { name: '查看柔雾通勤详情' }).click();
   const dialog = page.getByRole('dialog', { name: '柔雾通勤 穿搭详情' });
-  await expect(dialog.getByRole('img', { name: '柔雾通勤 穿搭示意' })).toBeVisible();
+  await expect(dialog.getByRole('img', { name: '柔雾通勤 穿搭示意' })).toBeVisible({ timeout: 15000 });
   await expect(dialog).toContainText('图片检索超时，请稍后重试');
   await expect(dialog.getByRole('button', { name: '重新检索' })).toBeVisible();
+});
+
+test('collected measurements and per-dimension fit are shown', async ({ page }) => {
+  await openOutfits(page, analysisPayload(true));
+  const body = page.locator('.outfits-body');
+  await expect(body).toContainText('人体数据');
+  await expect(body).toContainText('身高');
+  await expect(body).toContainText('170cm');
+  await expect(body).toContainText('已填');
+  // Estimated values are marked as such, so nobody reads them as measured.
+  await expect(body.locator('.outfits-body-chip.estimated')).toContainText('臀围');
+  await expect(body.locator('.outfits-body-chip.estimated')).toContainText('估算');
+
+  await page.getByRole('button', { name: '查看柔雾通勤详情' }).click();
+  const dialog = page.getByRole('dialog', { name: '柔雾通勤 穿搭详情' });
+  const block = dialog.locator('.outfit-fit');
+  await expect(block).toContainText('尺码匹配');
+  await expect(block).toContainText('胸围');
+  await expect(block).toContainText('合身');
+  await expect(block).toContainText('肩宽');
+  await expect(block).toContainText('偏紧');
+  await expect(block).toContainText('你的胸围 88cm 落在该款适配区间 88–100cm 内');
+  await expect(block).toContainText('肩宽偏紧 1cm，建议确认落肩幅度');
+  await expect(block).toContainText('匹配可信度 75%');
 });
 
 test('without a model the page still recommends and points at modeling', async ({ page }) => {

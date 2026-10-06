@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Box, Check, ChevronDown, Clock3, Layers3, LoaderCircle, RefreshCw,
-  RotateCcw, Settings2, Sparkles, Unplug, X } from 'lucide-react';
-import { api, type BodyAnalysis, type Capabilities, type Job, type Outfit, type OutfitFilterOption,
-  type OutfitImages, type OutfitResponse } from './api';
+  RotateCcw, Ruler, Settings2, Sparkles, Unplug, X } from 'lucide-react';
+import { api, type BodyAnalysis, type BodyField, type BodyValue, type Capabilities, type Job,
+  type Outfit, type OutfitFilterOption, type OutfitImages, type OutfitResponse } from './api';
 import { LookBoard } from './LookBoard';
 import './OutfitsPage.css';
 
@@ -12,6 +12,37 @@ const imageProviderLabels: Record<string, string> = {
 
 function imageProviderLabel(provider?: string): string {
   return (provider && imageProviderLabels[provider]) || '';
+}
+
+const bodyFieldLabels: { key: BodyField; label: string; unit: string }[] = [
+  { key: 'height_cm', label: '身高', unit: 'cm' },
+  { key: 'weight_kg', label: '体重', unit: 'kg' },
+  { key: 'shoulder_cm', label: '肩宽', unit: 'cm' },
+  { key: 'bust_cm', label: '胸围', unit: 'cm' },
+  { key: 'waist_cm', label: '腰围', unit: 'cm' },
+  { key: 'hip_cm', label: '臀围', unit: 'cm' },
+];
+
+const fitStateLabels: Record<string, string> = {
+  fit: '合身', tight: '偏紧', loose: '偏松', unknown: '未标注',
+};
+
+/** What the person measured (or the model estimated), shown above the analysis. */
+function BodySummary({ body }: { body?: Partial<Record<BodyField, BodyValue>> }) {
+  if (!body) return null;
+  const shown = bodyFieldLabels.filter((field) => body[field.key]?.value != null);
+  if (!shown.length) return null;
+  return <div className="outfits-body">
+    <span className="outfits-body-heading"><Ruler size={12} /> 人体数据</span>
+    {shown.map((field) => {
+      const value = body[field.key] as BodyValue;
+      return <span key={field.key} className={`outfits-body-chip ${value.source}`}>
+        <b>{field.label}</b>{value.value}{field.unit}
+        <i>{value.source === 'input' ? '已填' : '估算'}</i>
+      </span>;
+    })}
+    <small>未填的项按模型比例推算，估算值仅用于尺码参考</small>
+  </div>;
 }
 
 /** One selectable value of a recommendation filter, with its catalogue-wide count. */
@@ -55,9 +86,13 @@ function ProfileChart({ profile, labels }: { profile: number[]; labels: Record<s
 
 function AnalysisPanel({ analysis, onModeling }: { analysis: BodyAnalysis; onModeling: () => void }) {
   if (!analysis.available) {
+    const measured = Object.values(analysis.body || {}).some(
+      (value) => value?.value != null && value.source === 'input');
     return <div className="outfits-analysis-empty">
       <span className="outfits-analysis-icon"><Box size={22} strokeWidth={1.3} /></span>
-      <div><h3>尚未生成三维模型</h3><p>已按通用体型推荐。完成人体建模后，推荐会改用模型实测的肩宽、腰线与腿身比。</p></div>
+      <div><h3>尚未生成三维模型</h3><p>{measured
+        ? '已按你填写的身高与三围匹配尺码；生成三维模型后会补充模型实测的肩宽、腰线与腿身比。'
+        : '已按通用体型推荐。在「人体建模」页填写身高三围，或完成人体建模后可改用实测比例。'}</p></div>
       <button className="button small" type="button" onClick={onModeling}>前往人体建模 <ArrowRight size={13} /></button>
     </div>;
   }
@@ -145,26 +180,33 @@ function useOutfitImages(outfitId: string, limit: number, enabled = true) {
   return { images: result, loading, reload };
 }
 
-/** One look: a real photograph when the search source answers, else the drawn stand-in. */
+/** One look: a merchant photo when it came from the database, else a searched one. */
 function OutfitCard({ outfit, analyzed, onOpen }: {
   outfit: Outfit; analyzed: boolean; onOpen: () => void;
 }) {
   const { ref, seen } = useInView<HTMLElement>();
-  const { images, loading, reload } = useOutfitImages(outfit.id, 4, seen);
+  const product = outfit.image_urls?.length ? outfit.image_urls : [];
+  // The catalogue image search only knows built-in look ids, so a merchant item
+  // without uploads is shown as a colour sketch instead of a pointless request.
+  const searchable = outfit.origin !== 'database';
+  const { images, loading, reload } = useOutfitImages(outfit.id, 4, seen && searchable);
   const [index, setIndex] = useState(0);
-  const list = images?.images || [];
+  const list = product.length || !searchable ? [] : (images?.images || []);
   const current = list.length ? list[index % list.length] : undefined;
-  const failed = Boolean(images && !list.length && !loading);
+  const hero = product.length ? product[index % product.length] : current?.url;
+  const switchable = product.length > 1 || list.length > 1;
+  const failed = Boolean(searchable && !product.length && images && !list.length && !loading);
   return <article className="outfit-card" ref={ref}>
     <div className="outfit-card-board">
       <button type="button" className="outfit-card-open" onClick={onOpen} aria-label={`查看${outfit.name}详情`}>
-        {current
-          ? <img src={current.url} alt={current.title || `${outfit.name} 参考图`} loading="lazy" />
+        {hero
+          ? <img src={hero} alt={current?.title || `${outfit.name} 参考图`} loading="lazy" />
           : <LookBoard palette={outfit.palette} style={outfit.style} season={outfit.season} label={outfit.name} />}
       </button>
-      {list.length > 1 && <button type="button" className="outfit-cycle"
+      {switchable && <button type="button" className="outfit-cycle"
         aria-label={`换一张${outfit.name}的参考图`}
-        onClick={() => setIndex((value) => (value + 1) % list.length)}><RefreshCw size={12} /></button>}
+        onClick={() => setIndex((value) => (value + 1) % (product.length || list.length))}>
+        <RefreshCw size={12} /></button>}
       {failed && <button type="button" className="outfit-retry" onClick={reload}
         aria-label={`重新获取${outfit.name}的参考图`}><RefreshCw size={11} /> 重试</button>}
       {analyzed && <b className="outfit-score">{Math.round(outfit.score * 100)}</b>}
@@ -173,7 +215,9 @@ function OutfitCard({ outfit, analyzed, onOpen }: {
       aria-label={`查看${outfit.name}介绍与单品`}>
       <span className="outfit-card-title"><strong>{outfit.name}</strong><ArrowRight size={13} /></span>
       <small className="outfit-card-tagline">{outfit.tagline}</small>
-      <span className="outfit-card-tags"><i>{outfit.style}</i><i>{outfit.season}</i><i>{outfit.occasion}</i></span>
+      <span className="outfit-card-tags">
+        {outfit.origin === 'database' && <i className="outfit-card-origin">商家</i>}
+        <i>{outfit.style}</i><i>{outfit.season}</i><i>{outfit.occasion}</i></span>
       <span className="outfit-palette">{outfit.palette.map((color) =>
         <i key={color} style={{ background: color }} />)}</span>
     </button>
@@ -182,43 +226,56 @@ function OutfitCard({ outfit, analyzed, onOpen }: {
 
 /** The bigger, browsable picture set shown inside the detail dialog. */
 function OutfitGallery({ outfit }: { outfit: Outfit }) {
-  const { images, loading, reload } = useOutfitImages(outfit.id, 8);
+  const product = outfit.image_urls?.length ? outfit.image_urls : [];
+  const searchable = outfit.origin !== 'database';
+  const { images, loading, reload } = useOutfitImages(outfit.id, 8, searchable);
   const [index, setIndex] = useState(0);
-  const list = images?.images || [];
+  const list = product.length || !searchable ? [] : (images?.images || []);
   const current = list[Math.min(index, Math.max(list.length - 1, 0))];
+  const urls = product.length ? product : list.map((image) => image.url);
+  const hero = product.length ? product[Math.min(index, product.length - 1)] : current?.url;
 
-  if (!list.length) {
+  if (!urls.length) {
+    const note = !searchable
+      ? '商家未上传商品图，先以配色示意。'
+      : loading ? '正在检索图片…' : images?.error || '暂时取不到参考图，先以配色示意。';
     return <div className="outfit-gallery is-empty">
       <LookBoard palette={outfit.palette} style={outfit.style} season={outfit.season} label={outfit.name} />
       <div className="outfit-palette outfit-palette-large">{outfit.palette.map((color) =>
         <i key={color} style={{ background: color }} title={color} />)}</div>
-      <small>{loading ? '正在检索图片…' : images?.error || '暂时取不到参考图，先以配色示意。'}</small>
-      {!loading && <button className="button small" type="button" onClick={reload}>
+      <small>{note}</small>
+      {searchable && !loading && <button className="button small" type="button" onClick={reload}>
         重新检索 <RotateCcw size={13} /></button>}
     </div>;
   }
   return <div className="outfit-gallery">
     <figure className="outfit-gallery-main">
-      <img src={current.url} alt={current.title || `${outfit.name} 参考图`} />
+      <img src={hero} alt={current?.title || `${outfit.name} 商品图`} />
       <figcaption>
-        <span>{current.title || '参考图'}</span>
-        <span className="outfit-gallery-links">
-          {current.creator && <small>{current.creator}{current.license ? ` · ${current.license}` : ''}</small>}
-          {!current.creator && current.site && <small>{current.site}</small>}
-          <a href={current.source_url} target="_blank" rel="noreferrer">来源</a>
-          <a href={current.original_url} target="_blank" rel="noreferrer">原图</a>
-        </span>
+        {product.length
+          ? <span>商家上传的商品图 <b>{index + 1}/{product.length}</b></span>
+          : <>
+            <span>{current.title || '参考图'}</span>
+            <span className="outfit-gallery-links">
+              {current.creator && <small>{current.creator}{current.license ? ` · ${current.license}` : ''}</small>}
+              {!current.creator && current.site && <small>{current.site}</small>}
+              <a href={current.source_url} target="_blank" rel="noreferrer">来源</a>
+              <a href={current.original_url} target="_blank" rel="noreferrer">原图</a>
+            </span>
+          </>}
       </figcaption>
     </figure>
-    {list.length > 1 && <div className="outfit-gallery-strip">
-      {list.map((image, position) => <button key={image.id} type="button"
+    {urls.length > 1 && <div className="outfit-gallery-strip">
+      {urls.map((url, position) => <button key={url} type="button"
         className={position === index ? 'active' : ''} onClick={() => setIndex(position)}
         aria-label={`查看第 ${position + 1} 张参考图`}>
-        <img src={image.url} alt="" loading="lazy" />
+        <img src={url} alt="" loading="lazy" />
       </button>)}
     </div>}
     <p className="outfit-gallery-note">
-      图片由{images?.provider_label || '图片检索'}检索，版权归原作者所有，已保留来源链接。
+      {product.length
+        ? '图片由商家上传，版权归商家所有。'
+        : `图片由${images?.provider_label || '图片检索'}检索，版权归原作者所有，已保留来源链接。`}
     </p>
   </div>;
 }
@@ -318,6 +375,7 @@ export function OutfitsPage({ caps, jobs, onSettings, onModeling }: {
           <span className="muted">/ {analyzed ? '已测量比例' : '等待建模'}</span></div>
         <span className={`outfits-state ${analyzed ? 'ready' : 'empty'}`}>{analyzed ? '已分析' : '未生成'}</span>
       </div>
+      <BodySummary body={analysis?.body} />
       {analysis
         ? <AnalysisPanel analysis={analysis} onModeling={onModeling} />
         : error
@@ -393,6 +451,29 @@ export function OutfitsPage({ caps, jobs, onSettings, onModeling }: {
             </div>
             <p className="outfit-dialog-story">{detail.story}</p>
             <div className="outfit-dialog-reason"><Sparkles size={13} /><p>{detail.reason}</p></div>
+            {detail.fit && <div className="outfit-fit">
+              <h3><Ruler size={12} /> 尺码匹配 <span>{Math.round(detail.fit.score * 100)}</span></h3>
+              <ul className="outfit-fit-list">
+                {[...detail.fit.dimensions].sort((left, right) => right.weight - left.weight)
+                  .map((dimension) => <li key={dimension.key} className={dimension.state}>
+                  <span className="outfit-fit-label">{dimension.label}</span>
+                  <span className="outfit-fit-body">{dimension.body_value ?? '—'}
+                    {dimension.body_source === 'estimated' && <i>估算</i>}</span>
+                  <span className="outfit-fit-range">{dimension.range
+                    ? `${dimension.range[0]}–${dimension.range[1]}` : '未标注'}</span>
+                  <b className={`outfit-fit-state ${dimension.state}`}>{fitStateLabels[dimension.state]}</b>
+                  <small>{dimension.detail}</small>
+                </li>)}
+              </ul>
+              {detail.fit.warnings.length > 0 && <ul className="outfit-fit-warn">
+                {detail.fit.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>}
+              {detail.fit.reasons.length > 0 && <ul className="outfit-fit-reasons">
+                {detail.fit.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>}
+              <p className="outfit-fit-confidence">匹配可信度 {Math.round(detail.fit.confidence * 100)}%
+                {detail.fit.confidence < 0.6 && ' · 数据不全，建议补充身高与三围'}</p>
+            </div>}
             <h3>套装单品 <span>{detail.items.length}</span></h3>
             <ul className="outfit-item-list">
               {detail.items.map((item, index) => <li key={`${item.category}-${index}`}>

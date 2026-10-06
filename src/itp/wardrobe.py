@@ -1070,6 +1070,8 @@ def analysis_document(
             "profile": None,
             "notes": ["尚未生成三维模型，已按通用体型推荐"],
             "tags": [],
+            "ratios": None,
+            "tag_families": {},
         }
     labels = dict(geometry["labels"])
     labels["pose"] = POSE_LABELS.get(pose_mode or "", POSE_UNRECORDED)
@@ -1093,6 +1095,17 @@ def analysis_document(
             geometry["tags"]["volume"],
             geometry["tags"]["legs"],
         ],
+        # Machine-readable form of the same numbers, for the size matching
+        # library: it needs the ratios themselves and the tag families, not the
+        # display strings above.
+        "ratios": {
+            "shoulder_ratio": geometry["shoulder_ratio"],
+            "waist_ratio": geometry["waist_ratio"],
+            "hip_ratio": geometry["hip_ratio"],
+            "leg_ratio": geometry["leg_ratio"],
+            "thickness_ratio": geometry["thickness"],
+        },
+        "tag_families": dict(geometry["tags"]),
     }
 
 

@@ -1,0 +1,45 @@
+/* 人体数据采集：放在「人体建模」页的生成设置里，全部选填。 */
+
+.body-metrics { margin-top: 4px; }
+.body-metrics .field-label { display: flex; align-items: center; gap: 6px; margin-bottom: 0; }
+.body-metrics .field-heading { margin-top: 21px; }
+.body-metrics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 11px;
+}
+.body-metrics-field {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--theme-border);
+  border-radius: 5px;
+  background: var(--theme-bg);
+}
+.body-metrics-field > span { font-size: 10px; color: var(--theme-muted); white-space: nowrap; }
+.body-metrics-field > i { font-size: 9px; font-style: normal; color: var(--theme-muted); }
+.body-metrics-field .text-input {
+  height: 26px;
+  padding: 3px 6px;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  text-align: right;
+  color: var(--theme-text);
+}
+.body-metrics-field .text-input:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 1px; }
+.body-metrics-field .text-input::-webkit-outer-spin-button,
+.body-metrics-field .text-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.body-metrics-field .text-input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+.body-metrics .hint { margin-top: 9px; font-size: 9px; line-height: 1.7; }
+.body-metrics-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 9px; }
+.body-metrics-actions .text-button:disabled { opacity: .45; }
+.body-metrics-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--theme-primary); font-size: 9px; }
+.body-metrics-error { color: #a3614b; font-size: 9px; }
+
+@media (max-width: 760px) {
+  .body-metrics-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -33,17 +33,38 @@ export type TryOnJob = {
   model: string; active_view: string | null; results: Record<string, string>; error: string | null;
   provider: TryOnProvider;
 };
+export type BodyField = 'height_cm' | 'weight_kg' | 'shoulder_cm' | 'bust_cm' | 'waist_cm' | 'hip_cm';
+export type BodyValue = { value: number | null; source: 'input' | 'estimated' | 'missing' };
+/** One compared dimension: the person's value against a garment's size range. */
+export type FitDimension = {
+  key: string; label: string; weight: number; score: number;
+  state: 'fit' | 'tight' | 'loose' | 'unknown';
+  body_value: number | null; body_source: 'input' | 'estimated' | 'missing';
+  range: [number, number] | null; detail: string; delta_cm: number;
+};
+export type FitScore = {
+  score: number; fit_score: number; preference_score: number; confidence: number;
+  dimensions: FitDimension[]; reasons: string[]; warnings: string[]; suggestions: string[];
+};
 export type OutfitItem = { category: string; name: string; color: string; note: string };
 export type Outfit = {
   id: string; name: string; tagline: string; story: string;
   style: string; season: string; occasion: string;
   palette: string[]; items: OutfitItem[]; tips: string[]; avoid: string;
   reason: string; score: number; matched: string[];
+  /** Present once recommendations are scored against garment size ranges. */
+  fit?: FitScore;
+  origin?: 'catalogue' | 'database';
+  /** Merchant-uploaded product photos; these win over searched reference images. */
+  image_url?: string | null;
+  image_urls?: string[];
 };
 export type BodyAnalysis = {
   available: boolean; method: string; labels: Record<string, string>;
   metrics: { label: string; value: string; hint: string }[];
   profile: number[] | null; notes: string[]; tags: string[];
+  /** The measurements collected on the modelling page, with where each came from. */
+  body?: Partial<Record<BodyField, BodyValue>>;
 };
 export type OutfitImage = {
   id: string; url: string; original_url: string; source_url: string; site: string;
@@ -71,6 +92,17 @@ export type Job = {
   artifacts: { asset_id: string; stage: string; format: string; index: number }[];
 };
 
+/** An HTTP failure that keeps its status, so callers can react to 401 etc. */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -80,9 +112,10 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
       url === '/api/settings' && response.status === 403
         ? '服务器拒绝保存配置，请检查网站登录状态和设置页写入权限'
         : `请求失败（${response.status}）`;
-    throw new Error(detail);
+    throw new ApiError(detail, response.status);
   }
-  return response.json() as Promise<T>;
+  // Deleting a garment answers 204 with an empty body.
+  return (response.status === 204 ? undefined : await response.json()) as T;
 }
 
 export function post<T>(url: string, body: unknown): Promise<T> {

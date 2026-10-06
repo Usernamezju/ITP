@@ -174,6 +174,75 @@
 }
 .outfits-error { margin-top: 12px; color: #a3614b; font-size: 11px; }
 
+/* 人体数据：采集结果（用户填写 + 模型估算） */
+.outfits-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-surface);
+}
+.outfits-body-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 3px;
+  color: var(--theme-muted);
+  font-size: 10px;
+}
+.outfits-body-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--theme-bg);
+  font-size: 11px;
+}
+.outfits-body-chip b { color: var(--theme-muted); font-size: 9px; font-weight: 500; }
+.outfits-body-chip i { color: var(--theme-muted); font-size: 8px; font-style: normal; }
+.outfits-body-chip.estimated { background: var(--theme-soft); }
+.outfits-body > small { flex: 1 1 100%; color: var(--theme-muted); font-size: 9px; }
+
+/* 尺码匹配：逐维度对比 */
+.outfit-fit {
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--theme-border);
+  border-radius: 7px;
+  background: var(--theme-bg);
+}
+.outfit-fit h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 11px; font-weight: 600; }
+.outfit-fit h3 span { color: var(--theme-primary); }
+.outfit-fit-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.outfit-fit-list li {
+  display: grid;
+  grid-template-columns: 44px 1fr auto auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--theme-border);
+  border-radius: 5px;
+  background: var(--theme-surface);
+  font-size: 10px;
+}
+.outfit-fit-label { color: var(--theme-muted); }
+.outfit-fit-body { font-weight: 600; }
+.outfit-fit-body i { margin-left: 4px; color: var(--theme-muted); font-size: 8px; font-style: normal; font-weight: 400; }
+.outfit-fit-range { color: var(--theme-muted); font-size: 9px; }
+.outfit-fit-state { padding: 3px 6px; border-radius: 3px; background: var(--theme-soft); color: var(--theme-muted); font-size: 8px; }
+.outfit-fit-state.fit { background: var(--theme-primary); color: #fff; }
+.outfit-fit-state.tight { background: #f4e2d8; color: #a3614b; }
+.outfit-fit-state.loose { background: #e6eef4; color: #4a6b85; }
+.outfit-fit-list small { grid-column: 1 / -1; color: var(--theme-muted); font-size: 9px; line-height: 1.6; }
+.outfit-fit-warn { margin: 10px 0 0; padding-left: 16px; color: #a3614b; font-size: 10px; line-height: 1.8; }
+.outfit-fit-reasons { margin: 10px 0 0; padding-left: 16px; font-size: 10px; line-height: 1.8; }
+.outfit-fit-confidence { margin-top: 10px; color: var(--theme-muted); font-size: 9px; }
+
 .outfits-results-heading {
   display: flex;
   align-items: baseline;
@@ -283,6 +352,8 @@
   font-size: 8px;
   font-style: normal;
 }
+.outfit-card-tags i.outfit-card-origin { background: var(--theme-primary); color: #fff; font-weight: 600; }
+.outfit-gallery-main figcaption b { color: var(--theme-muted); font-weight: 500; }
 .outfit-palette { display: flex; gap: 4px; margin-top: 2px; }
 .outfit-palette i { width: 15px; height: 15px; border-radius: 3px; box-shadow: inset 0 0 0 1px #0000001a; }
 .outfit-palette-large i { width: 26px; height: 26px; border-radius: 5px; }
