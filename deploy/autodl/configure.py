@@ -3,7 +3,6 @@
 import argparse
 import os
 import secrets
-import subprocess
 from pathlib import Path
 
 from itp.config import Settings
@@ -51,17 +50,6 @@ def main() -> None:
     if not (settings.geometry_ready and settings.tryon_ready and settings.pose_ready):
         raise SystemExit("Core provider configuration is incomplete")
 
-    password_file = data_dir / "access-password"
-    if not password_file.exists():
-        password_file.write_text(secrets.token_urlsafe(24) + "\n", encoding="utf-8")
-        os.chmod(password_file, 0o600)
-    password = password_file.read_text(encoding="utf-8").strip()
-    subprocess.run(
-        ["htpasswd", "-i", "-cB", "/etc/nginx/itp.htpasswd", "itp"],
-        input=password + "\n", text=True, check=True, stdout=subprocess.DEVNULL,
-    )
-    os.chown("/etc/nginx/itp.htpasswd", 0, 33)  # Ubuntu's www-data group
-    os.chmod("/etc/nginx/itp.htpasswd", 0o640)
     print("Production configuration validated; credentials stored on server")
 
 

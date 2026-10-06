@@ -433,7 +433,7 @@ def create_app(
     @app.middleware("http")
     async def local_requests(request: Request, call_next):
         origin = request.headers.get("origin")
-        if request.url.path.rstrip("/") == "/api/settings" and (
+        if request.url.path.rstrip("/") in {"/api/settings", "/api/body-profile"} and (
             app.state.settings.public_origin or origin
             or request.headers.get("x-forwarded-for")
             or request.headers.get("x-forwarded-proto")

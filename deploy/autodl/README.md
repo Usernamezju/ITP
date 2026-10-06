@@ -1,7 +1,7 @@
 # AutoDL production deployment
 
 This deployment uses the AutoDL HTTPS gateway (`:8443` -> container port `6006`),
-Nginx Basic Authentication, one Uvicorn worker, and the image's supervised
+public Nginx page access, ITP application JWT authentication, one Uvicorn worker, and the image's supervised
 `/etc/autodl.sh` boot hook. The app and credentials live under
 `/root/autodl-tmp/itp-app` and `/root/autodl-tmp/itp-data` respectively.
 
@@ -11,8 +11,10 @@ Flux Klein and FaceVerse endpoints at the loopback model services on ports
 8788 and 8787. It creates the two bearer tokens if they are absent, in root-only
 files outside this repository (`itp-flux-klein-service/.token` and
 `itp-data/faceverse.token`), and reads them back into `.env`.
-It creates a random site password at `itp-data/access-password`; the username
-is `itp`. Do not commit the passwords, the tokens, `.env`, or `access.htpasswd`.
+The deployment no longer creates a site password or htpasswd file. Keep model
+service tokens, application JWT secrets, payment secrets and `.env` server-only.
+Existing unused site-password files may be archived by the operator; upgrades
+do not delete credentials or databases.
 
 The vendor supervisor starts `/etc/autodl.sh` (a copy of `autodl.sh` here), which executes the nested
 `supervisord` in this directory. The nested supervisor restarts Uvicorn and
@@ -31,15 +33,14 @@ in the server `.env` or process environment and restart only `itp-api` after
 changes. Deployment must preserve the live `.env`; never replace it with the
 example. Browser appearance preferences remain browser-local.
 
-Merchant registration and login also stay behind the site password. Only the
-JWT-guarded `/api/merchant/me`, `/password`, `/garments` and `/looks` paths
-(including their child paths) bypass Nginx Basic Authentication: FastAPI
-requires their merchant Bearer token, because both authentication schemes would
-otherwise compete for the same `Authorization` header. This exception does not
-expose `/api/settings`, body profiles or the rest of the site. Invalid or absent
-merchant tokens are rejected by FastAPI. The proxy allows up to 81 MiB on these
-paths for eight 10 MiB images plus multipart overhead; the application still
-enforces per-image, total-body and route-specific limits.
+首页、`/merchant`、`/account`、`/admin` 可以直接打开，不再出现浏览器原生
+Basic Auth 弹窗。访问流程为“直接访问网站 → 按业务需要注册/登录 ITP 账号”。
+商品、钱包、订单及管理数据仍由 FastAPI 的 JWT、数据库角色和归属检查保护。
+商家上传代理保留 81 MiB 上限，应用继续校验每张图片和请求体。
+
+`/api/body-profile` 是遗留共享测量接口，公网 Nginx 和配置了 public origin 的
+API 均返回 404；当前客户端使用账号分区的浏览器 IndexedDB。历史测量记录
+留在原库，不删除、不自动归属新用户。`/api/settings` 继续返回 404。
 
 ## Admin console
 
@@ -51,23 +52,17 @@ cd /root/autodl-tmp/itp-app && .venv/bin/python scripts/create_admin.py --name a
 ```
 
 The script asks for the password (or reads `ITP_ADMIN_PASSWORD`), refuses to
-overwrite an existing account and never prints the password. `/api/admin/*`
-bypasses Basic Authentication for the same header-conflict reason as the
-merchant routes, and every route still requires an admin Bearer token in
+overwrite an existing account and never prints the password. Every `/api/admin/*` route still requires an admin Bearer token in
 FastAPI: customers, merchants and anonymous visitors get 401/403. The console
 shows system status, provider settings without secret values, account and
 product totals, wallet/charge aggregates, orders and the tasks currently in
 RAM. It has no write endpoint, so provider credentials remain `.env`-owned:
-edit the server `.env` and restart `itp-api`. The `/admin` page itself sits
-behind the site password like the rest of the site.
+edit the server `.env` and restart `itp-api`. The `/admin` page itself opens directly; its data requires an admin account.
 
-Unified `/api/auth/register`, `/login`, `/logout` and `/api/account/me`, `/password`
-also bypass Basic Authentication to avoid the same header conflict. Registration
-and login are rate-limited by the application; account routes validate JWTs and
-merchant business routes additionally validate the database role. The new account
-module adds a role column and token-revocation table to the existing credential
-database without copying users or changing garment ownership. The main shared
-workspace remains Basic-protected during the asset-isolation upgrade.
+Unified registration and login are rate-limited by the application. Account
+routes validate JWTs; merchant routes additionally validate database roles and
+ownership. Account IDs, password hashes, garment ownership and token revocations
+remain in the existing database.
 
 The merchant module creates `merchants.sqlite3` and its tables on application
 startup; it does not replace the existing assets or job databases. Back up live
@@ -76,11 +71,10 @@ must persist across restarts: retain an existing value; if absent, add one
 generated secret without replacing other settings. No extra supervisor program
 or model service is needed for merchant accounts and size recommendations.
 
-The current app still uses a shared asset database for authenticated visitors.
-Provider configuration is operator-owned and cannot be modified through the
-public site. Full customer account isolation, financial controls and personal
-asset storage boundaries are separate commercial-upgrade modules; do not
-interpret removal of the settings page as completion of those modules.
+Current customer photos, measurements and models stay browser-local, with
+account-owned temporary server copies during processing. Old shared databases
+and backups are retained for owner-authorized export/removal, never exposed by
+the current routes. Merchant images remain persistent commercial assets.
 
 ## Payment upgrade
 
@@ -92,11 +86,10 @@ online backup API. Operator-only payment settings are listed in `.env.example`
 and `docs/modules/PAYMENTS.md`. Missing real merchant credentials disable payment;
 production must never enable mock payments. Do not test against live payment APIs.
 
-Public `/api/payments/methods` and `/api/payments/callbacks/{provider}` bypass
-Basic authentication; callbacks are strictly verified by the application.
-JWT-protected account order routes also bypass Basic to avoid header conflicts.
-Only the API needs restarting; Nginx needs a validated hot reload. Model workers
-do not change. Customer storage isolation remains a separate unfinished upgrade.
+Public payment methods and callbacks open directly; callbacks require official
+signature verification. Account order and wallet routes require JWTs. Validate
+Nginx with `nginx -t` before hot reload, and restart only the API for migrations;
+model workers and existing secrets remain unchanged.
 
 ## Model services
 
