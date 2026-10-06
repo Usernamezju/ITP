@@ -15,6 +15,8 @@ class AccountRegisterRequest(BaseModel):
     display_name: str
     contact: str = ""
     password: str
+    # The admin role is deliberately absent: it can only be minted by the local
+    # scripts/create_admin.py, never through the public registration API.
     role: Literal["customer", "merchant"] = "customer"
 
 

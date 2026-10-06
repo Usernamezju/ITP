@@ -665,9 +665,57 @@ class MerchantStore:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(merchants)")}
             if "role" not in columns:
                 conn.execute("ALTER TABLE merchants ADD COLUMN role TEXT NOT NULL "
-                             "DEFAULT 'merchant' CHECK (role IN ('customer', 'merchant'))")
+                             "DEFAULT 'merchant' "
+                             "CHECK (role IN ('customer', 'merchant', 'admin'))")
+            elif not self._schema_accepts_admin(conn):
+                # SQLite cannot alter a CHECK constraint, so a table created
+                # before the admin role is rebuilt once, inside a transaction.
+                self._migrate_merchants_for_admin(conn)
         from itp.commerce import CommerceStore
         self.commerce = CommerceStore(self, settings)
+
+    @staticmethod
+    def _schema_accepts_admin(conn) -> bool:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'merchants'"
+        ).fetchone()
+        return bool(row and row[0] and "'admin'" in row[0])
+
+    def _migrate_merchants_for_admin(self, conn) -> None:
+        """Rebuild the credential table so the role CHECK accepts 'admin'.
+
+        SQLite cannot drop or modify a CHECK constraint, so the table is
+        recreated inside one immediate transaction after writing a full backup
+        copy next to the database. No other table references ``merchants`` by
+        foreign key; ids, password hashes, products and balances stay intact.
+        The migration is idempotent: a second start sees 'admin' in the stored
+        schema and skips it.
+        """
+        backup = self.db.with_name(self.db.name + ".bak")
+        conn.commit()
+        with sqlite3.connect(backup) as target:
+            conn.backup(target)
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "CREATE TABLE merchants_admin_migration ("
+                "id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, display_name TEXT, "
+                "contact TEXT, password_hash TEXT, created REAL, "
+                "disabled INTEGER DEFAULT 0, quota INTEGER, "
+                "role TEXT NOT NULL DEFAULT 'merchant' "
+                "CHECK (role IN ('customer', 'merchant', 'admin')))"
+            )
+            conn.execute(
+                "INSERT INTO merchants_admin_migration "
+                "SELECT id, name, display_name, contact, password_hash, created, "
+                "disabled, quota, role FROM merchants"
+            )
+            conn.execute("DROP TABLE merchants")
+            conn.execute("ALTER TABLE merchants_admin_migration RENAME TO merchants")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
     def connect(self):
         return sqlite3.connect(self.db, timeout=10)
@@ -684,7 +732,7 @@ class MerchantStore:
         quota: int,
         role: str = "merchant",
     ) -> dict:
-        if role not in {"customer", "merchant"}:
+        if role not in {"customer", "merchant", "admin"}:
             raise ValueError("Invalid account role")
         merchant_id = uuid4().hex
         created = time.time()

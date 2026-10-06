@@ -293,3 +293,10 @@ def current_merchant(user: Annotated[dict, Depends(current_user)]) -> dict:
     if user.get("role") != "merchant":
         raise HTTPException(403, "需要商家身份才能访问")
     return user
+
+
+def current_admin(user: Annotated[dict, Depends(current_user)]) -> dict:
+    """The read-only operator console; admin accounts are CLI-created only."""
+    if user.get("role") != "admin":
+        raise HTTPException(403, "需要管理员身份才能访问")
+    return user
