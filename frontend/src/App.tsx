@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, RouterProvider, useNavigate } from 'react-router-dom';
 import { AccountPage } from './AccountPage';
+import AdminPage from './AdminPage';
 import { AppearancePage } from './AppearancePage';
 import CustomerLayout from './CustomerLayout';
 import { useCustomer } from './customerState';
@@ -12,7 +13,7 @@ import WorkspacePage from './WorkspacePage';
 /**
  * Every customer, merchant and operator address is a real URL: the workspace
  * is `/`, the wardrobe pages have their own paths, the shop console is
- * `/merchant` and the admin console (added with its page) is `/admin`.
+ * `/merchant` and the operator console is `/admin`.
  */
 
 function TryOnRoute() {
@@ -41,6 +42,8 @@ function AppearanceRoute() {
 }
 
 const router = createBrowserRouter([
+  // The operator console is its own app shell: an admin is not a customer.
+  { path: '/admin', element: <AdminPage /> },
   {
     path: '/',
     element: <CustomerLayout />,

@@ -23,6 +23,12 @@ export function loadContrastTheme(): ContrastTheme {
   catch { return 'standard'; }
 }
 
+/** Put the saved theme back on a page that has no theme controls of its own. */
+export function restoreTheme(): void {
+  document.documentElement.dataset.theme = loadColorTheme();
+  document.documentElement.dataset.contrast = loadContrastTheme();
+}
+
 export function applyTheme(color: ColorTheme, contrast: ContrastTheme): void {
   document.documentElement.dataset.theme = color;
   document.documentElement.dataset.contrast = contrast;

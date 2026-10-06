@@ -84,6 +84,78 @@ export type Job = {
   artifacts: { asset_id: string; stage: string; format: string; index: number }[];
 };
 
+/** One model service as the admin console reports it: configured, and which model. */
+export type AdminService = { ready: boolean; model: string };
+export type AdminFaceVerse = {
+  configured: boolean; reachable: boolean; model: string;
+  status: string | null; cuda: string | null; gpu: string | null;
+};
+export type AdminStatus = {
+  version: string;
+  services: {
+    geometry: boolean; pose: boolean; segmentation: boolean;
+    /** The active outfit photo source, e.g. `360图片`. */
+    outfit_images: string;
+    faceverse: AdminFaceVerse;
+    tryon: Record<TryOnProvider, AdminService>;
+    flux_klein: AdminService;
+    flux_klein_9b: AdminService;
+  };
+  payments: { id: string; name: string; ready: boolean }[];
+};
+/** Provider configuration with secrets reduced to `*_set` booleans. */
+export type AdminProviderSettings = {
+  tencent_endpoint: string; tencent_region: string; tencent_model: string;
+  tencent_secret_id_set: boolean; tencent_secret_key_set: boolean;
+  pose_endpoint: string; pose_model: string; pose_api_key_set: boolean;
+  seedream_endpoint: string; seedream_model: string; seedream_api_key_set: boolean;
+  flux_endpoint: string; flux_model: string; flux_api_key_set: boolean;
+  flux_max_endpoint: string; flux_max_model: string; flux_max_api_key_set: boolean;
+  flux_klein_endpoint: string; flux_klein_model: string; flux_klein_api_key_set: boolean;
+  flux_klein_9b_endpoint: string; flux_klein_9b_model: string; flux_klein_9b_api_key_set: boolean;
+  gpt_image_endpoint: string; gpt_image_model: string; gpt_image_api_key_set: boolean;
+  faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
+  image_provider: string; unsplash_access_key_set: boolean; pixabay_api_key_set: boolean;
+};
+export type AdminAccount = {
+  id: string; name: string; display_name: string; contact: string;
+  role: 'customer' | 'merchant' | 'admin'; created: number;
+  disabled: boolean; quota: number; garment_count: number;
+};
+export type AdminCharge = { count: number; amount_cents: number };
+export type AdminLedgerRow = {
+  id: string; user_id: string; account_name: string | null;
+  delta_cents: number; balance_cents: number; kind: string;
+  reference: string | null; created: number;
+};
+export type AdminUsage = {
+  model_charges: Record<'reserved' | 'completed' | 'refunded', AdminCharge>;
+  wallets: { count: number; total_balance_cents: number };
+  recent_ledger: AdminLedgerRow[];
+  garments: { total: number; draft?: number; published?: number };
+  looks: { total: number; draft?: number; published?: number };
+  orders: Record<'created' | 'submitting' | 'pending' | 'paid' | 'uncertain', AdminCharge>;
+};
+export type AdminOrder = {
+  id: string; kind: string; provider: string; amount_cents: number; currency: string;
+  state: string; created: number; updated: number; expires: number | null;
+  paid_at: number | null; description: string; plan_id: string | null;
+  user_id: string; account_name: string | null;
+};
+/** A generation job the server still holds; the customer's copy is the record. */
+export type AdminJob = {
+  id: string; owner_id: string; state: string; created: number; updated: number;
+  steps: { name: string; status: string }[];
+};
+export type AdminTransientJob = {
+  id: string; owner_id: string; state: string; created: number;
+  model: string | null; provider: string | null;
+};
+export type AdminJobs = {
+  jobs: AdminJob[]; tryons: AdminTransientJob[];
+  face_refinements: AdminTransientJob[]; note: string;
+};
+
 /** An HTTP failure that keeps its status, so callers can react to 401 etc. */
 export class ApiError extends Error {
   status: number;

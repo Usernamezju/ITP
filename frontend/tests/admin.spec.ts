@@ -1,0 +1,232 @@
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { expect, test, type Page } from '@playwright/test';
+
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+const account = { id: 'a'.repeat(32), name: 'ops', display_name: '运维', contact: '', role: 'admin', created: 1 };
+
+const status = {
+  version: '0.1.0',
+  services: {
+    geometry: true, pose: false, segmentation: true, outfit_images: '360图片',
+    faceverse: { configured: true, reachable: true, model: 'faceverse-1',
+      status: 'ok', cuda: '12.1', gpu: 'RTX 4090' },
+    tryon: {
+      seedream: { ready: true, model: 'seedream-5' },
+      flux: { ready: false, model: 'flux-2-pro' },
+      flux_max: { ready: false, model: 'flux-2-max' },
+      flux_klein: { ready: true, model: 'flux-2-klein' },
+      flux_klein_9b: { ready: false, model: 'flux-2-klein-9b' },
+      gpt_image: { ready: false, model: 'gpt-image-2' },
+    },
+    flux_klein: { ready: true, model: 'flux-2-klein' },
+    flux_klein_9b: { ready: false, model: 'flux-2-klein-9b' },
+  },
+  payments: [{ id: 'mock', name: '模拟支付（仅开发测试）', ready: true }],
+};
+// The endpoint never carries a secret value, only whether one is configured.
+const settings = {
+  tencent_endpoint: 'ai3d.tencentcloudapi.com', tencent_region: 'ap-guangzhou',
+  tencent_model: '3.1', tencent_secret_id_set: true, tencent_secret_key_set: true,
+  pose_endpoint: 'dashscope.aliyuncs.com', pose_model: 'qwen-image-edit', pose_api_key_set: true,
+  seedream_endpoint: '', seedream_model: 'seedream-5', seedream_api_key_set: false,
+  flux_endpoint: 'api.bfl.ai', flux_model: 'flux-2-pro', flux_api_key_set: false,
+  flux_max_endpoint: '', flux_max_model: 'flux-2-max', flux_max_api_key_set: false,
+  flux_klein_endpoint: 'http://127.0.0.1:8100', flux_klein_model: 'flux-2-klein',
+  flux_klein_api_key_set: false,
+  flux_klein_9b_endpoint: '', flux_klein_9b_model: 'flux-2-klein-9b',
+  flux_klein_9b_api_key_set: false,
+  gpt_image_endpoint: '', gpt_image_model: 'gpt-image-2', gpt_image_api_key_set: false,
+  faceverse_endpoint: 'http://127.0.0.1:8200/v1/face-refine', faceverse_model: 'faceverse-1',
+  faceverse_api_key_set: true,
+  image_provider: 'so', unsplash_access_key_set: false, pixabay_api_key_set: false,
+};
+const accounts = {
+  total: 2,
+  items: [
+    { ...account, disabled: false, quota: 0, garment_count: 0 },
+    { id: 'c'.repeat(32), name: 'alice', display_name: 'Alice', contact: '', role: 'customer',
+      created: 1790671718, disabled: true, quota: 20, garment_count: 3 },
+  ],
+};
+const usage = {
+  model_charges: {
+    reserved: { count: 1, amount_cents: 2345 },
+    completed: { count: 4, amount_cents: 9380 },
+    refunded: { count: 0, amount_cents: 0 },
+  },
+  wallets: { count: 2, total_balance_cents: 8765 },
+  recent_ledger: [{ id: 'l'.repeat(32), user_id: 'c'.repeat(32), account_name: 'alice',
+    delta_cents: -2345, balance_cents: 6300, kind: 'model_debit',
+    reference: 'j'.repeat(32), created: 1790671818 }],
+  garments: { total: 3, draft: 1, published: 2 },
+  looks: { total: 1, draft: 0, published: 1 },
+  orders: {
+    created: { count: 1, amount_cents: 1000 }, submitting: { count: 0, amount_cents: 0 },
+    pending: { count: 0, amount_cents: 0 }, paid: { count: 2, amount_cents: 20000 },
+    uncertain: { count: 0, amount_cents: 0 },
+  },
+};
+const orders = {
+  total: 3,
+  items: [{ id: 'o'.repeat(32), kind: 'recharge', provider: 'mock', amount_cents: 10000,
+    currency: 'CNY', state: 'paid', created: 1790671818, updated: 1790671900, expires: null,
+    paid_at: 1790671850, description: '钱包充值', plan_id: null,
+    user_id: 'c'.repeat(32), account_name: 'alice' }],
+};
+const jobs = {
+  jobs: [{ id: 'j'.repeat(32), owner_id: 'c'.repeat(32), state: 'awaiting_review',
+    created: 1790671818, updated: 1790671900,
+    steps: [{ name: 'geometry', status: 'done' }, { name: 'pose', status: 'running' }] }],
+  tryons: [{ id: 't'.repeat(32), owner_id: 'c'.repeat(32), state: 'ready',
+    created: 1790671818, model: 'seedream-5', provider: 'seedream' }],
+  face_refinements: [],
+  note: '仅显示服务端当前保留的任务；顾客确认保存后服务端副本即被删除，没有历史任务记录。',
+};
+
+/** One dashboard section, so equal-looking values elsewhere cannot match. */
+function section(page: Page, title: string) {
+  return page.locator('.admin-section', { has: page.getByRole('heading', { name: title }) });
+}
+
+type Options = {
+  /** Sign in before the page loads; false exercises the console's own login form. */
+  startSignedIn?: boolean;
+  role?: 'admin' | 'customer';
+  /** Admin endpoints that answer 500. */
+  fail?: string[];
+  /** Every admin endpoint answers 401, as an expired admin session would. */
+  unauthorized?: boolean;
+};
+
+/** `/admin` with the platform's admin endpoints mocked, like the other specs. */
+async function openAdmin(page: Page, options: Options = {}) {
+  const { startSignedIn = true, role = 'admin', fail = [], unauthorized = false } = options;
+  const calls: string[] = [];
+  const body: Record<string, unknown> = {
+    '/api/admin/status': status, '/api/admin/settings': settings,
+    '/api/admin/accounts': accounts, '/api/admin/usage': usage,
+    '/api/admin/orders': orders, '/api/admin/jobs': jobs,
+  };
+  let token = startSignedIn ? 'admin-token' : '';
+  if (startSignedIn) {
+    await page.addInitScript((value) => localStorage.setItem('itp.merchant.token', value), 'admin-token');
+  }
+  await page.route('**/*', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.startsWith('/api/admin/')) {
+      calls.push(path);
+      if (unauthorized) await route.fulfill({ status: 401, json: { detail: '登录状态已失效' } });
+      else if (fail.includes(path)) await route.fulfill({ status: 500, json: { detail: '内部错误' } });
+      else await route.fulfill({ json: body[path] });
+    } else if (path === '/api/auth/login') {
+      token = 'admin-token';
+      await route.fulfill({ json: { access_token: token, token_type: 'bearer', expires_in: 43200 } });
+    } else if (path === '/api/account/me') {
+      expect(route.request().headers()['authorization']).toBe(`Bearer ${token}`);
+      await route.fulfill({ json: { ...account, role } });
+    } else if (path === '/api/auth/logout') {
+      await route.fulfill({ json: { logged_out: true } });
+    } else if (path.startsWith('/api/')) {
+      await route.fulfill({ status: 404 });
+    } else if (path.startsWith('/assets/')) {
+      const name = path.slice('/assets/'.length);
+      if (!/^[\w.-]+$/.test(name)) { await route.fulfill({ status: 404 }); return; }
+      await route.fulfill({ body: await readFile(`${dist}/assets/${name}`),
+        contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript' });
+    } else {
+      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
+    }
+  });
+  await page.goto('/admin');
+  return calls;
+}
+
+test('an anonymous visitor gets a sign-in card without a registration path', async ({ page }) => {
+  const calls = await openAdmin(page, { startSignedIn: false });
+  await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
+  await expect(page.getByText('本页不提供注册入口')).toBeVisible();
+  await expect(page.getByRole('button', { name: '注册', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  // Nothing private is asked for before an admin has signed in.
+  expect(calls).toEqual([]);
+});
+
+test('an admin signs in and reads the whole console', async ({ page }) => {
+  await openAdmin(page, { startSignedIn: false });
+  await page.getByLabel('账号').fill('ops');
+  await page.getByLabel('密码').fill('operator-password');
+  await page.getByRole('button', { name: '进入管理后台' }).click();
+
+  await expect(page.getByRole('heading', { name: '系统状态与平台数据' })).toBeVisible();
+  await expect(page.getByText('已登录：运维（ops · 管理员）')).toBeVisible();
+  for (const title of ['运行状态', '模型服务配置', '账号与商户', '平台数据统计', '订单与支付', '服务端任务']) {
+    await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  }
+  // Status: platform version, the active photo source and one probe result.
+  await expect(page.getByText('0.1.0')).toBeVisible();
+  await expect(page.getByText('360图片')).toBeVisible();
+  await expect(page.getByText('RTX 4090')).toBeVisible();
+  await expect(page.getByRole('cell', { name: '火山引擎 SeedDream 5.0' })).toBeVisible();
+  // Accounts keep their role and state, not their password material.
+  const shops = section(page, '账号与商户');
+  await expect(shops.getByRole('cell', { name: '管理员' })).toBeVisible();
+  await expect(shops.getByRole('cell', { name: '顾客' })).toBeVisible();
+  await expect(shops.getByRole('cell', { name: '已禁用' })).toBeVisible();
+  // Usage aggregates money and content across every account.
+  const usage = section(page, '平台数据统计');
+  await expect(usage.getByText('¥87.65')).toBeVisible();
+  await expect(usage.getByRole('cell', { name: '¥93.80' })).toBeVisible();
+  await expect(usage.getByText('3 件 · 已发布 2 件')).toBeVisible();
+  await expect(usage.getByRole('cell', { name: '建模扣费' })).toBeVisible();
+  // Signed cents read the same way as the customer's own wallet ledger.
+  await expect(usage.getByRole('cell', { name: '¥-23.45' })).toBeVisible();
+  await expect(usage.getByRole('cell', { name: '¥63.00' })).toBeVisible();
+  const payments = section(page, '订单与支付');
+  await expect(payments.getByRole('cell', { name: '钱包充值' })).toBeVisible();
+  await expect(payments.getByRole('cell', { name: '已支付' })).toBeVisible();
+  // The task list says what it really is: no server-side history exists.
+  const tasks = section(page, '服务端任务');
+  await expect(tasks.getByText('等待确认姿势')).toBeVisible();
+  await expect(tasks.getByText('几何生成·done、姿势编辑·running')).toBeVisible();
+  await expect(tasks.getByRole('heading', { name: '脸部精修任务（0）' })).toBeVisible();
+  await expect(tasks.getByText('没有历史任务记录')).toBeVisible();
+  // The console is a real page: a refresh keeps the signed-in admin on it.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '系统状态与平台数据' })).toBeVisible();
+});
+
+test('a signed-in customer is refused and no admin endpoint is called', async ({ page }) => {
+  const calls = await openAdmin(page, { role: 'customer' });
+  await expect(page.getByRole('heading', { name: '管理员后台仅限管理员账号访问' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '系统状态与平台数据' })).toHaveCount(0);
+  expect(calls).toEqual([]);
+});
+
+test('an expired admin session drops back to the sign-in card', async ({ page }) => {
+  await openAdmin(page, { unauthorized: true });
+  await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('itp.merchant.token'))).toBeNull();
+});
+
+test('the provider settings section is read-only and shows no secret', async ({ page }) => {
+  await openAdmin(page);
+  const panel = section(page, '模型服务配置');
+  await expect(panel.getByText('凭据由服务器')).toBeVisible();
+  // No field, no password box and no save button: credentials live in the .env.
+  await expect(panel.locator('input')).toHaveCount(0);
+  await expect(panel.locator('input[type="password"]')).toHaveCount(0);
+  await expect(panel.getByRole('button')).toHaveCount(0);
+  await expect(panel.getByText('腾讯云混元 AI3D')).toBeVisible();
+  await expect(panel.getByText('ai3d.tencentcloudapi.com')).toBeVisible();
+  await expect(panel.getByText('已配置').first()).toBeVisible();
+  await expect(panel.getByText('未配置').first()).toBeVisible();
+});
+
+test('one failing endpoint leaves the other sections readable', async ({ page }) => {
+  await openAdmin(page, { fail: ['/api/admin/usage'] });
+  await expect(page.getByText('本节读取失败')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '运行状态' })).toBeVisible();
+  await expect(page.getByText('0.1.0')).toBeVisible();
+  await expect(section(page, '订单与支付').getByRole('cell', { name: '已支付' })).toBeVisible();
+});
