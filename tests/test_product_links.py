@@ -30,6 +30,10 @@ def test_optional_url_roundtrip_edit_and_permission(env):
     for bad in ("javascript:alert(1)", "//evil.test"):
         assert client.patch(path, headers=owner, json={"purchase_url": bad}).status_code == 422
     assert client.get(f"/api/garments/{product['id']}").json()["metrics"]["purchase_url"].endswith("id=123")
+    recommendation = client.get('/api/outfits').json()['recommendations'][0]
+    assert recommendation['items'][0]['garment_id'] == product['id']
+    assert recommendation['items'][0]['merchant_id'] == product['merchant_id']
+    assert recommendation['items'][0]['purchase_url'].endswith('id=123')
     edited = client.patch(path, headers=owner, json={"purchase_url": "http://shop.example/item"})
     assert edited.json()["metrics"]["purchase_url"] == "http://shop.example/item"
     # Omitted fields survive patches, null explicitly clears the destination.
@@ -55,3 +59,23 @@ def test_additive_migration_preserves_legacy_records(tmp_path):
         assert migrated.merchant(owner["id"])["password_hash"] == "unchanged-hash"
         assert migrated.garment(garment["id"])["metrics"]["purchase_url"] is None
         assert migrated.commerce.summary(owner["id"])["balance_cents"] == 1000
+
+
+def test_look_prices_and_purchase_entries_only_include_published_members(env):
+    import json
+    client, _, _ = env
+    headers = auth(token_for(client))
+    members = []
+    for price, status in [(12900, 'published'), (5900, 'published'), (99900, 'draft')]:
+        created = client.post('/api/merchant/garments', headers=headers, data={'payload': json.dumps({
+            'category': '上装', 'name': f'商品-{price}', 'status': status, 'price_cents': price,
+            'purchase_url': 'https://shop.example/item',
+        })}).json()
+        members.append(created['id'])
+    client.post('/api/merchant/looks', headers=headers, json={
+        'name': '套装', 'status': 'published', 'items': members})
+    look = client.get('/api/outfits').json()['recommendations'][0]
+    assert look['price_cents'] == 18800
+    assert [item['garment_id'] for item in look['items']] == members[:2]
+    client.patch(f'/api/merchant/garments/{members[0]}', headers=headers, json={'price_cents': None})
+    assert client.get('/api/outfits').json()['recommendations'][0]['price_cents'] is None

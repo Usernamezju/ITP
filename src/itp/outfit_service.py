@@ -100,13 +100,17 @@ def _attribute_note(metrics: dict[str, Any]) -> str:
     return " · ".join(parts) or "商家未填写说明"
 
 
-def _item(metrics: dict[str, Any]) -> dict[str, Any]:
+def _item(metrics: dict[str, Any], garment: dict[str, Any] | None = None) -> dict[str, Any]:
     attributes = metrics.get("attributes") or {}
     return {
         "category": metrics.get("category") or "",
         "name": metrics.get("name") or "未命名单品",
         "color": attributes.get("color") or "#cccccc",
         "note": metrics.get("description") or _attribute_note(metrics),
+        "garment_id": garment.get("id") if garment else None,
+        "merchant_id": garment.get("merchant_id") if garment else None,
+        "purchase_url": metrics.get("purchase_url"),
+        "price_cents": metrics.get("price_cents"),
     }
 
 
@@ -150,7 +154,10 @@ def _look_payload(
         "season": look.get("season") or "",
         "occasion": look.get("occasion") or "",
         "palette": _palette(members, look.get("palette")),
-        "items": [_item(_member_metrics(member)) for member in members],
+        "items": [_item(_member_metrics(member), member) for member in members],
+        "price_cents": (sum(_member_metrics(member)["price_cents"] for member in members)
+                        if members and all(_member_metrics(member).get("price_cents") is not None
+                                           for member in members) else None),
         "tips": [],
         "avoid": "",
         "reason": reasons[0] if reasons else "按尺码指标匹配",
@@ -180,7 +187,8 @@ def _garment_payload(
         "season": metrics.get("season") or "",
         "occasion": metrics.get("occasion") or "",
         "palette": _palette([metrics], None),
-        "items": [_item(metrics)],
+        "items": [_item(metrics, garment)],
+        "price_cents": metrics.get("price_cents"),
         "tips": list(metrics.get("tips") or []),
         "avoid": "",
         "reason": reasons[0] if reasons else "按尺码指标匹配",

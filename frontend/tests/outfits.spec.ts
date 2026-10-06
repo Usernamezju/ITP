@@ -170,6 +170,7 @@ const fit = {
 test('outfit page shows measured analysis, photos and ranked looks', async ({ page }) => {
   await openOutfits(page, analysisPayload(true));
   await expect(page.getByRole('heading', { name: '穿搭推荐', exact: true })).toBeVisible();
+  await page.locator('.outfits-analysis-details > summary').click();
   await expect(page.getByText('三维模型分析')).toBeVisible();
   await expect(page.getByText('从三维模型包围盒与轮廓切片估算')).toBeVisible();
   await expect(page.getByText('身高 / 肩宽')).toBeVisible();
@@ -228,6 +229,7 @@ test('a failed image search falls back to the drawn stand-in and can be retried'
 
 test('collected measurements and per-dimension fit are shown', async ({ page }) => {
   await openOutfits(page, analysisPayload(true));
+  await page.locator('.outfits-analysis-details > summary').click();
   const body = page.locator('.outfits-body');
   await expect(body).toContainText('人体数据');
   await expect(body).toContainText('身高');
@@ -239,6 +241,7 @@ test('collected measurements and per-dimension fit are shown', async ({ page }) 
 
   await page.getByRole('button', { name: '查看柔雾通勤详情' }).click();
   const dialog = page.getByRole('dialog', { name: '柔雾通勤 穿搭详情' });
+  await dialog.locator('.outfit-fit-details > summary').click();
   const block = dialog.locator('.outfit-fit');
   await expect(block).toContainText('尺码匹配');
   await expect(block).toContainText('胸围');
@@ -253,6 +256,7 @@ test('collected measurements and per-dimension fit are shown', async ({ page }) 
 test('without a model the page still recommends and points at modeling', async ({ page }) => {
   await openOutfits(page, analysisPayload(false));
   await expect(page.locator('.outfits-stage-heading')).toContainText('通用体型推荐');
+  await page.locator('.outfits-analysis-details > summary').click();
   await expect(page.getByRole('heading', { name: '尚未生成三维模型' })).toBeVisible();
   await expect(page.locator('.outfit-card')).toHaveCount(3);
   // Every look scores the same without a model, so no meaningless match badge is shown.

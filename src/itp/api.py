@@ -101,11 +101,22 @@ class OutfitRecommendRequest(BaseModel):
 
     asset_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     measurements: dict[str, Any] | None = None
+    history_preferences: dict[str, Any] | None = None
     style: str | None = None
     season: str | None = None
     occasion: str | None = None
     pose_mode: str | None = None
     limit: int = Field(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT)
+
+
+class OutfitDiscoveryRequest(BaseModel):
+    """Public ranking accepts compact category counts, never private assets."""
+    model_config = ConfigDict(extra="forbid")
+    style: str | None = Field(default=None, max_length=80)
+    season: str | None = Field(default=None, max_length=80)
+    occasion: str | None = Field(default=None, max_length=80)
+    limit: int = Field(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT)
+    history_preferences: dict[str, Any] | None = None
 
 
 # --- merchant accounts -------------------------------------------------------
@@ -987,6 +998,17 @@ def create_app(
             limit=limit,
         )
 
+    @app.post("/api/outfits/discover")
+    def discover_outfits(body: OutfitDiscoveryRequest):
+        from itp.hybrid_recommendation import normalize_history_preferences
+        try:
+            history = normalize_history_preferences(body.history_preferences)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return recommend_outfits(store, merchants, style=body.style, season=body.season,
+                                 occasion=body.occasion, limit=body.limit,
+                                 history_preferences=history)
+
     @app.post("/api/outfits/recommend")
     def recommend_for_browser(body: OutfitRecommendRequest, user: dict = Depends(current_user)):
         """Score one recommendation from data the browser uploaded just now.
@@ -1001,6 +1023,8 @@ def create_app(
             if asset["kind"] != "model" or not store.path(body.asset_id).is_file():
                 raise HTTPException(422, "模型文件已过期，请重新上传")
         try:
+            from itp.hybrid_recommendation import normalize_history_preferences
+            history = normalize_history_preferences(body.history_preferences)
             measurements = (
                 normalize_body_profile(body.measurements) if body.measurements else None
             )
@@ -1017,6 +1041,7 @@ def create_app(
                 limit=body.limit,
                 body_profile=measurements,
                 pose_mode=body.pose_mode,
+                history_preferences=history,
             )
         finally:
             if body.asset_id:
