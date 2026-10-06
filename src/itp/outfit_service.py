@@ -23,6 +23,7 @@ from typing import Any
 
 from itp import wardrobe
 from itp.garments import MerchantStore, public_image
+from itp.hybrid_recommendation import normalize_history_preferences, rank_candidate
 from itp.size_match import normalize_body, score_garment, score_look
 
 BODY_FIELDS = ("height_cm", "weight_kg", "shoulder_cm", "bust_cm", "waist_cm", "hip_cm")
@@ -216,6 +217,28 @@ def _published_members(
     return members, images
 
 
+def _rank_payload(
+    payload: dict[str, Any],
+    *,
+    style: str | None,
+    season: str | None,
+    occasion: str | None,
+    history_preferences: dict[str, dict[str, int]],
+) -> dict[str, Any]:
+    """Add bounded ranking evidence, keeping size dimensions and confidence intact."""
+    ranking = rank_candidate(
+        payload["score"], payload, style=style, season=season, occasion=occasion,
+        history_preferences=history_preferences,
+        categories=[item["category"] for item in payload.get("items", [])],
+        context_in_base=payload.get("origin") == "catalogue",
+    )
+    payload["ranking"] = ranking
+    payload["score"] = ranking["score"]
+    if ranking["reasons"]:
+        payload["reason"] = " · ".join([payload["reason"], *ranking["reasons"]])
+    return payload
+
+
 def recommend(
     store: Any,
     merchants: MerchantStore | None,
@@ -227,6 +250,7 @@ def recommend(
     limit: int = 6,
     body_profile: dict | None = None,
     pose_mode: str | None = None,
+    history_preferences: dict | None = None,
 ) -> dict[str, Any]:
     """Assemble a recommendation body from one temporary model and measurement set.
 
@@ -235,13 +259,26 @@ def recommend(
     ``source`` keeps its original meaning (whether a model was analysed); where
     each recommendation came from is carried per item as ``origin``.
     """
+    history = normalize_history_preferences(history_preferences)
     report = wardrobe.outfit_report(
         store, asset_id=asset_id, style=style, season=season,
-        occasion=occasion, limit=limit, pose_mode=pose_mode,
+        occasion=occasion, limit=len(wardrobe.CATALOG), pose_mode=pose_mode,
     )
     profile = body_profile
     inputs = body_inputs(profile, report["analysis"])
     report["analysis"]["body"] = normalize_body(inputs)
+    ranking_options = {
+        "style": style, "season": season, "occasion": occasion,
+        "history_preferences": history,
+    }
+    # Rank the entire fallback catalogue before trimming, so a locally preferred
+    # style outside the original top six can actually become discoverable.
+    catalogue = []
+    for outfit in report["recommendations"]:
+        outfit["origin"] = "catalogue"
+        catalogue.append(_rank_payload(outfit, **ranking_options))
+    catalogue.sort(key=lambda outfit: -outfit["score"])  # Stable editorial ties.
+    report["recommendations"] = catalogue[:limit]
     if not merchants:
         return report
 
@@ -254,7 +291,8 @@ def recommend(
             if not members:
                 continue
             fit = score_look(inputs, look, [_scoring_member(member) for member in members])
-            scored.append((fit["score"], _look_payload(look, members, images, fit)))
+            payload = _rank_payload(_look_payload(look, members, images, fit), **ranking_options)
+            scored.append((payload["score"], payload))
         if scored:
             scored.sort(key=lambda item: (-item[0], item[1]["id"]))
             report["recommendations"] = [payload for _score, payload in scored[:limit]]
@@ -271,14 +309,20 @@ def recommend(
         if _matches(garment["metrics"], style, season, occasion)
     ][:CANDIDATE_POOL]
     if garments:
-        scored = [
-            (score_garment(inputs, _scoring_member(garment)), garment) for garment in garments
-        ]
-        scored.sort(key=lambda item: (-item[0]["score"], item[1]["id"]))
+        scored = []
+        for garment in garments:
+            fit = score_garment(inputs, _scoring_member(garment))
+            ranking = rank_candidate(
+                fit["score"], {"id": garment["id"], **garment["metrics"]},
+                categories=[garment["metrics"]["category"]], **ranking_options,
+            )
+            scored.append((ranking["score"], fit, garment))
+        scored.sort(key=lambda item: (-item[0], item[2]["id"]))
         top = scored[:limit]
-        images = merchants.images_for_many([garment["id"] for _fit, garment in top])
+        images = merchants.images_for_many([garment["id"] for _score, _fit, garment in top])
         report["recommendations"] = [
-            _garment_payload(garment, images, fit) for fit, garment in top
+            _rank_payload(_garment_payload(garment, images, fit), **ranking_options)
+            for _score, fit, garment in top
         ]
         report["filters"] = {
             "styles": _filters([str(g["metrics"].get("style") or "") for g in all_garments]),

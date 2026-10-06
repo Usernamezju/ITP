@@ -4,6 +4,8 @@ import pytest
 
 from itp.garments import MerchantStore, normalize_look, normalize_metrics
 from itp.outfit_service import body_inputs, recommend
+from itp.size_match import score_garment
+from itp import wardrobe
 
 MEASUREMENTS = {
     "height_cm": 170.0, "bust_cm": 88.0, "waist_cm": 70.0, "weight_kg": 58.0,
@@ -206,3 +208,49 @@ def test_an_empty_database_notes_that_the_catalogue_is_used(store, merchants):
     assert report["recommendations"]
     assert all(outfit["origin"] == "catalogue" for outfit in report["recommendations"])
     assert any("商家尚未发布商品" in note for note in report["analysis"]["notes"])
+
+
+def test_history_changes_garment_order_without_mutating_original_fit(store, merchants, merchant):
+    work = make_garment(merchants, merchant["id"], style="通勤", name="通勤款")
+    make_garment(merchants, merchant["id"], style="运动", name="运动款")
+    report = score(store, merchants, history_preferences={"styles": {"通勤": 20}})
+    preferred = report["recommendations"][0]
+    assert preferred["name"] == "通勤款"
+    expected_fit = score_garment({**MEASUREMENTS, "model": {"available": False}}, work["metrics"])
+    assert preferred["fit"] == expected_fit
+    assert "近期更常查看通勤风" in preferred["reason"]
+    assert preferred["ranking"]["base_score"] == expected_fit["score"]
+
+
+def test_historical_style_never_bypasses_explicit_merchant_filters(store, merchants, merchant):
+    make_garment(merchants, merchant["id"], style="通勤", name="通勤款")
+    make_garment(merchants, merchant["id"], style="运动", name="运动款")
+    report = score(store, merchants, style="运动", history_preferences={"styles": {"通勤": 20}})
+    assert [item["name"] for item in report["recommendations"]] == ["运动款"]
+
+
+def test_incomplete_body_and_no_history_preserve_neutral_fit(store, merchants, merchant):
+    make_garment(merchants, merchant["id"])
+    report = recommend(store, merchants)
+    item = report["recommendations"][0]
+    assert item["score"] == item["fit"]["score"] == 0.5
+    assert item["fit"]["confidence"] == 0.0
+    assert all(dimension["state"] == "unknown" for dimension in item["fit"]["dimensions"])
+
+
+def test_no_merchant_goods_rank_entire_fallback_catalogue_using_history(store, merchants):
+    cold = recommend(store, merchants, limit=2)
+    expected = wardrobe.outfit_report(store, limit=2)["recommendations"]
+    assert [item["id"] for item in cold["recommendations"]] == [item["id"] for item in expected]
+    assert [item["score"] for item in cold["recommendations"]] == [item["score"] for item in expected]
+    personalized = recommend(store, merchants, limit=2, history_preferences={"styles": {"学院": 20}})
+    assert personalized["recommendations"][0]["style"] == "学院"
+    assert all(item["origin"] == "catalogue" for item in personalized["recommendations"])
+
+
+def test_published_look_priority_survives_history_of_other_single_items(store, merchants, merchant):
+    top = make_garment(merchants, merchant["id"], style="通勤")
+    make_look(merchants, merchant["id"], [top["id"]], name="已发布通勤套装")
+    make_garment(merchants, merchant["id"], style="运动", name="偏好运动单品")
+    report = score(store, merchants, history_preferences={"styles": {"运动": 20}})
+    assert [item["name"] for item in report["recommendations"]] == ["已发布通勤套装"]
