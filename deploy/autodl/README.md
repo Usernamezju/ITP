@@ -31,6 +31,23 @@ configuration, and never returns stored provider keys. Unauthenticated
 visitors cannot read or save configuration. Other settings methods remain
 denied.
 
+Merchant registration and login also stay behind the site password. Only the
+JWT-guarded `/api/merchant/me`, `/password`, `/garments` and `/looks` paths
+(including their child paths) bypass Nginx Basic Authentication: FastAPI
+requires their merchant Bearer token, because both authentication schemes would
+otherwise compete for the same `Authorization` header. This exception does not
+expose `/api/settings`, body profiles or the rest of the site. Invalid or absent
+merchant tokens are rejected by FastAPI. The proxy allows up to 81 MiB on these
+paths for eight 10 MiB images plus multipart overhead; the application still
+enforces per-image, total-body and route-specific limits.
+
+The merchant module creates `merchants.sqlite3` and its tables on application
+startup; it does not replace the existing assets or job databases. Back up live
+SQLite databases with the SQLite backup API before upgrading. `ITP_JWT_SECRET`
+must persist across restarts: retain an existing value; if absent, add one
+generated secret without replacing other settings. No extra supervisor program
+or model service is needed for merchant accounts and size recommendations.
+
 The current app uses one shared configuration and asset database for all
 authenticated visitors. **Anyone holding the site password can modify
 provider configuration**; give it only to trusted collaborators. This is
