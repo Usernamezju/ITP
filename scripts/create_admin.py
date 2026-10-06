@@ -34,6 +34,26 @@ def resolve_password(args) -> str | None:
     return first
 
 
+def resolve_data_dir(args) -> Path:
+    """Where the accounts live: --data-dir, then ITP_DATA_DIR, then the app .env.
+
+    The deployed box keeps its data dir in the app .env (written by
+    deploy/autodl/configure.py) and the documented command runs from the
+    repository root, so the CLI must read the same file the API reads.
+    """
+    if args.data_dir:
+        return Path(args.data_dir)
+    if value := os.environ.get("ITP_DATA_DIR", "").strip():
+        return Path(value)
+    env_file = Path(".env")
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "ITP_DATA_DIR" and (value := value.strip().strip("'\"")):
+                return Path(value)
+    return Path(__file__).resolve().parents[1] / "data"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -42,7 +62,7 @@ def main() -> int:
     parser.add_argument("--password", default=None,
                         help="密码；省略则读 ITP_ADMIN_PASSWORD 或交互式输入")
     parser.add_argument("--data-dir", default=None,
-                        help="数据目录，默认 ./data（与 ITP_DATA_DIR 一致）")
+                        help="数据目录；默认取 ITP_DATA_DIR 环境变量或应用 .env，再退回 ./data")
     args = parser.parse_args()
 
     name = args.name.strip()
@@ -50,7 +70,7 @@ def main() -> int:
         print("管理员登录名不能为空。")
         return 1
 
-    root = Path(args.data_dir) if args.data_dir else Path(__file__).resolve().parents[1] / "data"
+    root = resolve_data_dir(args)
     if not (root / "merchants.sqlite3").exists():
         print(f"没有找到账号数据库：{root / 'merchants.sqlite3'}")
         print("先启动一次后端完成建库，再运行本脚本。")

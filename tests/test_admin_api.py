@@ -1,6 +1,10 @@
 """Admin role migration, CLI-only creation and the read-only /api/admin console."""
 
+import os
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
@@ -344,3 +348,57 @@ def test_admin_pagination_bounds_are_validated(client):
                       params={"limit": 501}).status_code == 422
     assert client.get("/api/admin/orders", headers=auth,
                       params={"limit": 201}).status_code == 422
+
+
+CLI = Path(__file__).resolve().parents[1] / "scripts" / "create_admin.py"
+
+
+def run_cli(cwd, extra_env, *args):
+    """Run the real create_admin.py with a clean ITP_DATA_DIR, never prompting."""
+    env = {key: value for key, value in os.environ.items() if key != "ITP_DATA_DIR"}
+    env.update(extra_env or {})
+    return subprocess.run(
+        [sys.executable, str(CLI), *args], cwd=cwd, env=env,
+        capture_output=True, text=True, timeout=120)
+
+
+def test_create_admin_cli_reads_the_data_dir_from_the_app_env(tmp_path):
+    """configure.py stores ITP_DATA_DIR in the app .env; the documented CLI command must find it."""
+    data = tmp_path / "itp-data"
+    MerchantStore(data)  # create the database like a first app startup
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    (app_root / ".env").write_text(f"ITP_DATA_DIR={data}\n", encoding="utf-8")
+
+    created = run_cli(app_root, None, "--name", "ops", "--password", "cli-password")
+
+    assert created.returncode == 0, created.stderr
+    account = MerchantStore(data).merchant_by_name("ops")
+    assert account["role"] == "admin"
+    assert "已创建管理员账号" in created.stdout
+
+    duplicate = run_cli(app_root, None, "--name", "ops", "--password", "cli-password")
+    assert duplicate.returncode == 1
+    assert "已存在" in duplicate.stdout
+
+
+def test_create_admin_cli_honours_the_itp_data_dir_variable(tmp_path):
+    data = tmp_path / "itp-data"
+    MerchantStore(data)
+
+    created = run_cli(tmp_path, {"ITP_DATA_DIR": str(data)},
+                      "--name", "ops", "--password", "cli-password")
+
+    assert created.returncode == 0, created.stderr
+    assert MerchantStore(data).merchant_by_name("ops")["role"] == "admin"
+
+
+def test_create_admin_cli_accepts_an_explicit_data_dir(tmp_path):
+    data = tmp_path / "itp-data"
+    MerchantStore(data)
+
+    created = run_cli(tmp_path, None, "--data-dir", str(data),
+                      "--name", "ops", "--password", "cli-password")
+
+    assert created.returncode == 0, created.stderr
+    assert MerchantStore(data).merchant_by_name("ops")["role"] == "admin"
