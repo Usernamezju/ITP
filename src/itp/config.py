@@ -1,7 +1,7 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 KLEIN_PROVIDERS = ("flux_klein", "flux_klein_9b")
@@ -50,8 +50,22 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr("")
     merchant_token_hours: int = Field(default=12, ge=1, le=720)
     merchant_quota: int = Field(default=200, ge=0, le=100000)
+    merchant_free_upload_limit: int = Field(default=5, ge=0, le=100000)
+    merchant_free_period_months: int = Field(default=1, ge=1, le=120)
+    customer_membership_price_cents: int = Field(default=3000, ge=0, le=10**12)
+    model_price_cents: int = Field(default=1500, ge=0, le=10**12)
+    commercial_plans: list[dict] = Field(default_factory=list)
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
+
+    @field_validator("model_price_cents", "customer_membership_price_cents", mode="before")
+    @classmethod
+    def integer_money(cls, value):
+        if isinstance(value, str) and value.isascii() and value.isdecimal():
+            return int(value)
+        if type(value) is not int:
+            raise ValueError("Prices must be integer cents, not floats or booleans")
+        return value
 
     @model_validator(mode="after")
     def validate_endpoints(self):

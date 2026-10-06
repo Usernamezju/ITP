@@ -77,6 +77,7 @@ const imagePayload = {
 
 /** Serves the built bundle offline, records outfits requests and can fail image search. */
 async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], images: unknown = imagePayload) {
+  if (jobs.length) await page.addInitScript(() => localStorage.setItem('itp.merchant.token', 'outfits-token'));
   const requests: string[] = [];
   await page.route('**/*', async (route) => {
     const request = route.request();
@@ -88,6 +89,8 @@ async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], imag
         faceverse: false, faceverse_model: '',
         outfit_images: true, image_provider: 'so', provider: '', pose_provider: '',
         model: '3.1', pose_model: '' } });
+    } else if (pathname === '/api/account/me') {
+      await route.fulfill({ json: { id: 'outfits-user', name: 'outfits', display_name: 'Outfits', role: 'customer', contact: '', created: 1 } });
     } else if (pathname === '/api/jobs') {
       await route.fulfill({ json: jobs });
     } else if (pathname === '/') {

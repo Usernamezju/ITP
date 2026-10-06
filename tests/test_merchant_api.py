@@ -229,10 +229,10 @@ def test_register_login_and_me(env):
     me = client.get("/api/merchant/me", headers=auth(tokens["access_token"]))
     assert me.status_code == 200
     assert set(me.json()) == {
-        "merchant_id", "name", "display_name", "contact", "created", "quota", "garment_count",
+        "merchant_id", "name", "display_name", "contact", "created", "quota", "garment_count", "upload_usage",
     }
     assert me.json()["garment_count"] == 0
-    assert me.json()["quota"] == settings.merchant_quota
+    assert me.json()["quota"] == settings.merchant_free_upload_limit
     assert me.json()["contact"] == "owner@example.com"
 
 
@@ -539,14 +539,16 @@ def test_quota_and_sku_conflicts(env):
     client, settings, _ = env
     merchant_id = register(client).json()["merchant_id"]
     token = token_for(client)
-    MerchantStore(settings.data_dir).set_quota(merchant_id, 2)
+    client.app.state.commerce.configure_plan('merchant_free', name='Free', audience='merchant', price_cents=0,
+        period_months=1, entitlements={'garment_upload': 2}, purchasable=False)
     assert create_garment(client, token, name="一").status_code == 201
     assert create_garment(client, token, name="二").status_code == 201
     blocked = create_garment(client, token, name="三")
     assert blocked.status_code == 409
-    assert "配额上限" in blocked.json()["detail"]
+    assert "本周期上传额度" in blocked.json()["detail"]
 
-    MerchantStore(settings.data_dir).set_quota(merchant_id, 5)
+    client.app.state.commerce.configure_plan('merchant_free', name='Free', audience='merchant', price_cents=0,
+        period_months=1, entitlements={'garment_upload': 5}, purchasable=False)
     assert create_garment(client, token, name="四", sku="SKU-1").status_code == 201
     clash = create_garment(client, token, name="五", sku="SKU-1")
     assert clash.status_code == 409

@@ -7,6 +7,7 @@ from itp.downloads import download
 from itp.preprocessing import image_base64, prepare_image
 from itp.providers import PoseProvider, ProviderError, TencentProvider, safe_code
 from itp.storage import Store
+from itp.model_validation import valid_mesh
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +17,22 @@ class Interrupted(Exception):
 
 
 class Pipeline:
-    def __init__(self, store: Store, settings: Settings, cloud=None, pose=None, fetch=None):
+    def __init__(self, store: Store, settings: Settings, cloud=None, pose=None, fetch=None, commerce=None):
         self.store = store
         self.settings = settings
         self.cloud = cloud or TencentProvider(settings)
         self.pose = pose or PoseProvider(settings)
         self.fetch = fetch or download
         self.stop = threading.Event()
+        self.commerce = commerce
 
     def checkpoint(self):
         if self.stop.is_set():
             raise Interrupted
+
+    def has_valid_result(self, job):
+        return any(valid_mesh(self.store.path(artifact["asset_id"]), artifact["format"])
+                   for artifact in job["artifacts"] if self.store.asset(artifact["asset_id"]))
 
     def step(self, job: dict, name: str) -> dict:
         existing = next((s for s in job["steps"] if s["name"] == name), None)
@@ -269,9 +275,19 @@ class Pipeline:
                 job["steps"][-1]["status"] = "failed"
             self.store.save_job(job)
             logger.warning("Job %s failed (%s)", job["id"], type(exc).__name__)
+        finally:
+            if self.commerce and job["state"] in {"succeeded", "failed", "rejected", "cancelled"}:
+                self.commerce.finish_model(job["id"], succeeded=job["state"] == "succeeded", valid_result=self.has_valid_result(job))
 
     def run_forever(self):
         while not self.stop.is_set():
+            for expired in self.store.expired_reviews(time.time() - self.settings.task_timeout_seconds):
+                try:
+                    self.store.review(expired["id"], False)
+                except (ValueError, KeyError):
+                    continue
+                if self.commerce:
+                    self.commerce.finish_model(expired["id"], succeeded=False, valid_result=False)
             jobs = self.store.jobs(active=True)
             for job in jobs:
                 if self.stop.is_set():

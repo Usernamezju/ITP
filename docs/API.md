@@ -1,6 +1,9 @@
 # 本地 REST API
 
-本地默认地址 `http://127.0.0.1:8000`，交互式 OpenAPI 文档在 `/docs`。仅适用于本机单用户；未提供公网身份认证。浏览器跨站写请求拒绝，Host 仅允许回环名称。
+本地默认地址 `http://127.0.0.1:8000`，交互式 OpenAPI 文档在 `/docs`。
+账号、资金和建模任务使用统一 JWT；公网仍有过渡性的共享工作台访问门禁，
+顾客资产本地化在 C04 完成前不能作为正式多用户隐私版本。浏览器跨站写
+请求拒绝，Host 仅允许回环名称，公网由受控 Nginx 转发。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -11,13 +14,16 @@
 | POST | /api/auth/logout | Bearer；服务端吊销当前令牌 |
 | GET / PATCH | /api/account/me | Bearer；查看/修改个人资料，角色不可自行更改 |
 | POST | /api/account/password | Bearer；验证当前密码并吊销全部旧密码会话 |
+| GET | /api/pricing | 服务端配置的整数分价格与套餐 |
+| GET | /api/account/commerce | Bearer；自己的余额、会员权益和周期上传额度 |
+| GET | /api/account/ledger | Bearer；自己的流水，limit/offset 分页 |
 | POST | /api/assets?remove_background=false | multipart `file` 上传；返回 id/url/width/height/size |
 | GET | /api/assets/{id} | 资产元数据 |
 | GET | /api/assets/{id}/file | 预览文件；`?download=true` 返回附件 |
-| POST | /api/jobs | JSON JobRequest；201 或未配置 503 |
-| GET | /api/jobs | 最新 100 个任务 |
-| GET | /api/jobs/{id} | 单个任务、阶段 ID、产物列表 |
-| POST | /api/jobs/{id}/review | JSON `{"approve": true}` 确认姿势；false 放弃 |
+| POST | /api/jobs | Bearer + Idempotency-Key；扣钱包整数分；201/402/409/503 |
+| GET | /api/jobs | Bearer；只返回自己的任务 |
+| GET | /api/jobs/{id} | Bearer；自己的任务、阶段 ID、产物列表 |
+| POST | /api/jobs/{id}/review | Bearer；JSON `{"approve": true}` 确认姿势；false 放弃并退款 |
 
 上传需包含 Content-Length；上限约 10 MiB 加 multipart 开销。图片再经实际读取长度与解码验证。无图像资产或资产类型错误返回 422。任务输入禁止任意公网 URL，由本地已上传资产 ID 引用。
 

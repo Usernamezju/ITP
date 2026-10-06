@@ -134,13 +134,16 @@ def test_garment_status_and_metrics_update(store):
 
 def test_quota_is_enforced_without_partial_rows(store):
     merchant = make_merchant(store, quota=2)
+    store.commerce.configure_plan('merchant_free', name='Free', audience='merchant', price_cents=0,
+        period_months=1, entitlements={'garment_upload': 2}, purchasable=False)
     store.create_garment(merchant["id"], make_metrics(name="一"))
     store.create_garment(merchant["id"], make_metrics(name="二"))
     with pytest.raises(QuotaExceeded):
         store.create_garment(merchant["id"], make_metrics(name="三"))
     assert store.count_garments(merchant["id"]) == 2
 
-    store.set_quota(merchant["id"], 3)
+    store.commerce.configure_plan('merchant_free', name='Free', audience='merchant', price_cents=0,
+        period_months=1, entitlements={'garment_upload': 3}, purchasable=False)
     store.create_garment(merchant["id"], make_metrics(name="三"))
     assert store.count_garments(merchant["id"]) == 3
 
@@ -484,6 +487,8 @@ def test_metrics_document_is_valid_json_round_trip(store):
 
 def test_concurrent_writes_keep_the_store_consistent(store):
     merchant = make_merchant(store, quota=1000)
+    store.commerce.configure_plan('merchant_free', name='Free', audience='merchant', price_cents=0,
+        period_months=1, entitlements={'garment_upload': 1000}, purchasable=False)
     errors: list[Exception] = []
 
     def worker(index: int):

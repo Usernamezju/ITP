@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from itp.api import create_app
+from auth_helpers import fund_client
 from itp.config import HAIJING_GENERATION_ENDPOINT, Settings
 from itp.preprocessing import MAX_UPLOAD, image_base64
 from itp.tryon import FluxProvider
@@ -21,6 +22,7 @@ def test_haijing_settings_save_and_create_multi_reference_tryon(
     config = tmp_path / ".env"
     app = create_app(settings, start_worker=False, config_path=config)
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
         response = client.patch("/api/settings", json={
             f"{provider}_endpoint": HAIJING_GENERATION_ENDPOINT,
             f"{provider}_api_key": "test-relay-key",

@@ -6,6 +6,7 @@ import {
 import { ApiError } from './api';
 import { logoutAccount } from './accountApi';
 import { SESSION_EVENT } from './session';
+import { parseYuan, yuanText } from './money';
 import {
   GarmentMetrics, GarmentOptions, LookDraft, MerchantGarment, MerchantLook,
   MerchantProfile, addGarmentImages, changePassword, createGarment, createLook,
@@ -56,7 +57,7 @@ function draftFrom(garment: MerchantGarment, options: GarmentOptions): Draft {
   draft.name = metrics.name || '';
   draft.brand = metrics.brand || '';
   draft.sku = metrics.sku || '';
-  draft.price = metrics.price_cents == null ? '' : String(metrics.price_cents / 100);
+  draft.price = metrics.price_cents == null ? '' : yuanText(metrics.price_cents);
   draft.style = metrics.style || draft.style;
   draft.season = metrics.season || draft.season;
   draft.occasion = metrics.occasion || '';
@@ -97,8 +98,8 @@ function validate(draft: Draft, options: GarmentOptions): Record<string, string>
     errors.name = `名称不能超过 ${limits.name_max} 个字符`;
   }
   if (draft.price.trim()) {
-    const cents = Math.round(Number(draft.price) * 100);
-    if (!Number.isFinite(cents) || cents < 0) errors.price = '价格必须是不小于 0 的数字';
+    const cents = parseYuan(draft.price);
+    if (cents == null) errors.price = '价格必须不小于 0，且最多两位小数';
     else if (cents > limits.price_max_cents) errors.price = '价格超出可接受范围';
   }
   if (draft.description.length > limits.description_max) {
@@ -152,7 +153,7 @@ function metricsFrom(draft: Draft, options: GarmentOptions): GarmentMetrics {
     name: draft.name.trim(),
     brand: draft.brand.trim() || null,
     sku: draft.sku.trim() || null,
-    price_cents: draft.price.trim() ? Math.round(Number(draft.price) * 100) : null,
+    price_cents: draft.price.trim() ? parseYuan(draft.price) : null,
     style: draft.style || null,
     season: draft.season || null,
     occasion: draft.occasion.trim() || null,
@@ -190,7 +191,7 @@ function rangeSummary(garment: MerchantGarment, options: GarmentOptions): string
 
 function priceLabel(garment: MerchantGarment): string {
   const cents = garment.metrics.price_cents;
-  return cents == null ? '未标价' : `¥${(cents / 100).toFixed(2)}`;
+  return cents == null ? '未标价' : `¥${yuanText(cents)}`;
 }
 
 // --- sign in -----------------------------------------------------------------
@@ -779,7 +780,7 @@ export function MerchantPage() {
     </section>;
   }
 
-  const used = profile.garment_count;
+  const used = profile.upload_usage?.used ?? 0;
 
   return <section className="merchant-page">
     <div className="merchant-bar">
@@ -789,7 +790,7 @@ export function MerchantPage() {
           <small>@{profile.name}{profile.contact ? ` · ${profile.contact}` : ''}</small></div>
       </div>
       <div className="merchant-quota">
-        <span>商品 {used}/{profile.quota}</span>
+        <span>本周期上传 {used}/{profile.quota} · 商品 {profile.garment_count} 件</span>
         <span className="merchant-quota-bar"><i style={{
           width: `${Math.min(100, Math.round((used / Math.max(profile.quota, 1)) * 100))}%`,
         }} /></span>

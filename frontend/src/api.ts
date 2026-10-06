@@ -1,3 +1,5 @@
+import { sessionToken } from './session';
+
 export type Asset = {
   id: string; url: string; kind: string; width?: number; height?: number;
   size: number; format?: string; background_removed?: boolean;
@@ -91,7 +93,11 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const headers = new Headers(init?.headers);
+  const token = sessionToken.read();
+  if (/^\/api\/(auth\/|account\/|merchant\/|jobs(?:\/|$)|tryons\/[^/]+\/continue$)/.test(url)
+    && token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(url, { ...init, headers });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     const detail = typeof data.detail === 'string' ? data.detail :
@@ -104,8 +110,21 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function post<T>(url: string, body: unknown): Promise<T> {
-  return api<T>(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body) });
+  const key = `${url}:${JSON.stringify(body)}`;
+  const charged = url === '/api/jobs' || /^\/api\/tryons\/[^/]+\/continue$/.test(url);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (charged) {
+    if (!pendingCharges.has(key)) pendingCharges.set(key, crypto.randomUUID());
+    headers['Idempotency-Key'] = pendingCharges.get(key)!;
+  }
+  return api<T>(url, { method: 'POST', headers, body: JSON.stringify(body) }).then((result) => {
+    pendingCharges.delete(key); return result;
+  }).catch((error) => {
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500) pendingCharges.delete(key);
+    throw error;
+  });
 }
+
+const pendingCharges = new Map<string, string>();
 
 export const fileUrl = (id: string) => `/api/assets/${id}/file`;

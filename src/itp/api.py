@@ -292,7 +292,8 @@ def create_app(
     tryon_worker = TryOnWorker(store, tryons, settings)
     face_jobs = FaceRefineStore(store.root)
     face_worker = FaceRefineWorker(store, face_jobs, settings)
-    merchants = MerchantStore(store.root)
+    merchants = MerchantStore(store.root, settings)
+    pipeline.commerce = merchants.commerce
     settings_lock = threading.Lock()
     face_lock = threading.Lock()
     auth_limiter = AuthLimiter()
@@ -310,6 +311,7 @@ def create_app(
                 raise RuntimeError(
                     "ITP already uses this data directory; run one worker only"
                 ) from exc
+            merchants.commerce.reconcile_models(store.job, pipeline.has_valid_result)
             thread = threading.Thread(target=pipeline.run_forever, daemon=True, name="itp-worker")
             thread.start()
             tryon_thread = threading.Thread(
@@ -340,6 +342,7 @@ def create_app(
     app.state.face_jobs = face_jobs
     app.state.face_worker = face_worker
     app.state.merchants = merchants
+    app.state.commerce = merchants.commerce
     app.state.config_path = config_path
     app.state.settings = settings
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
@@ -415,7 +418,7 @@ def create_app(
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if request.url.path == "/api/settings" or request.url.path.startswith(("/api/auth/", "/api/account/", "/api/merchant/")):
+        if request.url.path == "/api/settings" or request.url.path.startswith(("/api/auth/", "/api/account/", "/api/merchant/", "/api/jobs")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -579,11 +582,11 @@ def create_app(
         return FileResponse(path, media_type=media, filename=path.name if download else None)
 
     @app.get("/api/jobs")
-    def list_jobs():
-        return [public_job(j) for j in store.jobs()]
+    def list_jobs(user: dict = Depends(current_user)):
+        return [public_job(j) for j in store.jobs(owner_id=user["id"])]
 
     @app.post("/api/jobs", status_code=201)
-    def create_job(body: JobRequest):
+    def create_job(body: JobRequest, request: Request, user: dict = Depends(current_user)):
         ids = [body.front, *body.views.values()]
         if body.pose_reference:
             ids.append(body.pose_reference)
@@ -603,13 +606,36 @@ def create_app(
         if encoded_total > 8 * 1024 * 1024:
             raise HTTPException(422, "多视图图片编码后超过腾讯云 8 MiB 限制，请压缩后重试")
         if not current.geometry_ready:
-            raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
+            raise HTTPException(503, "平台人体建模服务暂不可用，请稍后再试")
         if body.pose_mode != "original" and not current.pose_ready:
-            raise HTTPException(503, "姿势编辑 API 待配置；请在设置页填写")
+            raise HTTPException(503, "平台姿势编辑服务暂不可用，可使用原始姿势")
         models = {"geometry": current.tencent_model}
         if body.pose_mode != "original":
             models["pose"] = current.pose_model
-        return public_job(store.create_job(body.model_dump(), models=models))
+        return enqueue_paid_job(body, request, user, models=models)
+
+    def enqueue_paid_job(body, request, user, *, models=None):
+        from itp.commerce import CommerceError, IdempotencyConflict, InsufficientFunds
+        try:
+            reservation = merchants.commerce.reserve_model(user["id"],
+                request.headers.get("idempotency-key", ""), body.model_dump())
+        except InsufficientFunds as exc:
+            raise HTTPException(402, str(exc)) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except CommerceError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if reservation["replayed"]:
+            existing = store.job(reservation["job_id"])
+            if not existing:
+                raise HTTPException(409, "该请求已处理；请查看任务历史与钱包流水，勿重复扣费")
+            return public_job(existing)
+        try:
+            return public_job(store.create_job(body.model_dump(), models=models,
+                job_id=reservation["job_id"], owner_id=user["id"]))
+        except Exception:
+            merchants.commerce.finish_model(reservation["job_id"], succeeded=False, valid_result=False)
+            raise
 
     @app.get("/api/tryons")
     def list_tryons():
@@ -626,7 +652,7 @@ def create_app(
             if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
                 raise HTTPException(422, "输入图片不存在，请重新上传")
         if not app.state.settings.tryon_provider_ready(body.provider):
-            raise HTTPException(503, "所选生图模型 API 待配置；请在设置页填写")
+            raise HTTPException(503, "所选平台生图服务暂不可用，请稍后再试")
         if body.provider in KLEIN_PROVIDERS and not flux_klein_health(body.provider)["ready"]:
             variant = "9B" if body.provider == "flux_klein_9b" else "4B"
             raise HTTPException(503, f"FLUX.2 Klein {variant} 服务尚未就绪；请检查健康状态")
@@ -640,7 +666,7 @@ def create_app(
         return job
 
     @app.post("/api/tryons/{tryon_id}/continue", status_code=201)
-    def continue_tryon(tryon_id: str):
+    def continue_tryon(tryon_id: str, http_request: Request, user: dict = Depends(current_user)):
         tryon = tryons.get(tryon_id)
         if not tryon:
             raise HTTPException(404, "试穿任务不存在")
@@ -648,38 +674,38 @@ def create_app(
             raise HTTPException(409, "六张试穿结果尚未生成完成")
         current = app.state.settings
         if not current.geometry_ready:
-            raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
+            raise HTTPException(503, "平台人体建模服务暂不可用，请稍后再试")
         results = tryon["results"]
         request = JobRequest(name=tryon["name"], front=results["front"],
                              views={view: results[view] for view in VIEWS if view != "front"},
                              views_consistent_confirmed=True)
-        return public_job(store.create_job(request.model_dump()))
+        return create_job(request, http_request, user)
 
     @app.get("/api/jobs/{job_id}")
-    def get_job(job_id: str):
+    def get_job(job_id: str, user: dict = Depends(current_user)):
+        return public_job(owned_job(job_id, user))
+
+    def owned_job(job_id, user):
         job = store.job(job_id)
-        if not job:
+        if not job or job.get("owner_id") != user["id"]:
             raise HTTPException(404, "任务不存在")
-        return public_job(job)
+        return job
 
     @app.get("/api/jobs/{job_id}/face-refinement")
-    def get_face_refinements(job_id: str):
-        if not store.job(job_id):
-            raise HTTPException(404, "任务不存在")
+    def get_face_refinements(job_id: str, user: dict = Depends(current_user)):
+        owned_job(job_id, user)
         return face_jobs.for_job(job_id)
 
     @app.post("/api/jobs/{job_id}/face-refinement", status_code=201)
-    def create_face_refinement(job_id: str, body: FaceRefineRequest):
-        source = store.job(job_id)
-        if not source:
-            raise HTTPException(404, "任务不存在")
+    def create_face_refinement(job_id: str, body: FaceRefineRequest, user: dict = Depends(current_user)):
+        source = owned_job(job_id, user)
         if source["state"] != "succeeded":
             raise HTTPException(409, "请等待 3D 模型生成完成")
         photo = store.asset(body.face_photo)
         if not photo or photo["kind"] != "face_photo" or not store.path(body.face_photo).is_file():
             raise HTTPException(422, "请上传原始高清正面人物照片")
         if not app.state.settings.faceverse_ready:
-            raise HTTPException(503, "FaceVerse 服务器待配置；请在设置页填写")
+            raise HTTPException(503, "平台脸部精修服务暂不可用，请稍后再试")
         meshes = [artifact for artifact in source["artifacts"]
                   if artifact["format"] == "GLB" and artifact["stage"] != "face_refine"]
         if not meshes:
@@ -692,11 +718,15 @@ def create_app(
                                     app.state.settings.faceverse_model)
 
     @app.post("/api/jobs/{job_id}/review")
-    def review_job(job_id: str, body: ReviewRequest):
+    def review_job(job_id: str, body: ReviewRequest, user: dict = Depends(current_user)):
+        owned_job(job_id, user)
         if body.approve and not app.state.settings.geometry_ready:
             raise HTTPException(503, "腾讯云 API 待配置，不能继续生成")
         try:
-            return public_job(store.review(job_id, body.approve))
+            reviewed = store.review(job_id, body.approve)
+            if not body.approve:
+                merchants.commerce.finish_model(job_id, succeeded=False, valid_result=False)
+            return public_job(reviewed)
         except KeyError as exc:
             raise HTTPException(404, "任务不存在") from exc
         except ValueError as exc:
@@ -814,7 +844,9 @@ def create_app(
 
     @app.get("/api/merchant/me")
     def merchant_me(merchant: dict = Depends(current_merchant)):
-        return public_merchant(merchant, garment_count=merchants.count_garments(merchant["id"]))
+        usage = merchants.commerce.summary(merchant["id"])["upload_usage"]
+        return public_merchant(merchant, garment_count=merchants.count_garments(merchant["id"])) | {
+            "quota": usage["limit"], "upload_usage": usage}
 
     @app.post("/api/merchant/password")
     def merchant_change_password(
@@ -864,6 +896,19 @@ def create_app(
     @app.get("/api/account/me")
     def account_me(user: dict = Depends(current_user)):
         return public_account(user)
+
+    @app.get("/api/pricing")
+    def pricing():
+        return merchants.commerce.prices()
+
+    @app.get("/api/account/commerce")
+    def account_commerce(user: dict = Depends(current_user)):
+        return merchants.commerce.summary(user["id"])
+
+    @app.get("/api/account/ledger")
+    def account_ledger(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+                       user: dict = Depends(current_user)):
+        return {"items": merchants.commerce.ledger(user["id"], limit=limit, offset=offset)}
 
     @app.patch("/api/account/me")
     def account_update(body: AccountProfileUpdate, user: dict = Depends(current_user)):

@@ -3,6 +3,7 @@ import { LoaderCircle, LogOut, UserRound } from 'lucide-react';
 import { accountApi, logoutAccount, type Account } from './accountApi';
 import { sessionToken } from './session';
 import './AccountPage.css';
+import { CommercePanel } from './CommercePanel';
 
 export function AccountPage({ user, onChanged }: { user: Account | null; onChanged: () => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -78,6 +79,7 @@ export function AccountPage({ user, onChanged }: { user: Account | null; onChang
       <button className="button" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" />
         : mode === 'register' ? '注册并登录' : '登录账号'}</button>
     </form> : <div className="account-columns">
+      <CommercePanel user={user} />
       <form className="account-card" onSubmit={saveProfile}><h2>个人资料</h2>
         <div className="account-identity"><span className="account-avatar">{user.display_name.slice(0, 1).toUpperCase()}</span>
           <div><strong>{user.name}</strong><small>{user.role === 'merchant' ? '商家' : '普通顾客'}</small></div></div>

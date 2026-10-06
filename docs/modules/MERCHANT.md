@@ -54,7 +54,7 @@ python scripts/reset_merchant_password.py --name demo-shop --password 自己的�
 | 401 | 未登录、令牌无效或过期、账号或密码不正确 |
 | 403 | 商家账号已被禁用；非本地来源的写请求 |
 | 404 | 资源不存在**或不属于当前商家**（两种情况故意不区分，避免泄露 id 是否存在） |
-| 409 | 商家账号重复、货号重复、商品数量超出配额 |
+| 409 | 商家账号重复、货号重复、本周期上传次数耗尽 |
 | 411 | 上传请求缺少 `Content-Length` |
 | 413 | 请求体过大（单图 >10 MiB，或整体超过上限） |
 | 422 | 指标字段校验失败，`detail` 为中文原因 |
@@ -179,7 +179,12 @@ curl -sS http://127.0.0.1:8000/api/body-profile
 
 ## 配额
 
-每个商家可导入的商品件数由 `ITP_MERCHANT_QUOTA` 决定（默认 200）。新建账号时写入配额，超出后导入返回 409「商品数量已达配额上限」。配额在写入前用同一把进程锁检查，因此并发导入不会突破上限。
+免费商家默认每个日历月 5 次商品上传，由 `ITP_MERCHANT_FREE_UPLOAD_LIMIT`
+和 `ITP_MERCHANT_FREE_PERIOD_MONTHS` 配置，删除商品不恢复次数。
+上传次数和商品写入在同一 SQLite 写事务，跨连接并发也不能超额。
+`/api/merchant/me` 返回 `upload_usage`（used/limit/remaining/starts/ends）；
+`garment_count` 是当前商品数，不能拿它充当上传消耗。
+旧 `ITP_MERCHANT_QUOTA` 不再作为永久商品数量限制，详见 [资金模块](COMMERCE.md)。
 
 ## 请求示例
 

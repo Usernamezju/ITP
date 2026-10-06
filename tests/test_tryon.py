@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from itp.api import create_app
+from auth_helpers import fund_client
 from itp.tryon import VIEWS, SeedDreamProvider, FluxProvider, FluxKleinProvider, GPTImageProvider, TryOnRequest, TryOnStore, TryOnWorker, closest_view
 
 
@@ -12,6 +13,7 @@ def test_tryon_requires_configuration_without_affecting_3d(settings, image_bytes
     settings = settings.model_copy(update={"seedream_endpoint": ""})
     app = create_app(settings, start_worker=False)
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
         asset = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
         assert client.get("/api/capabilities").json()["tryon"] is False
         assert client.post("/api/jobs", json={"front": asset["id"]}).status_code == 201
@@ -40,6 +42,7 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes, varian
 
     app.state.tryon_worker.providers[variant].generate = fake_generate
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
         asset = client.post("/api/assets", files={"file": ("source.png", image_bytes)}).json()
         payload = {"name": "测试试穿", "provider": variant,
                    "person": {view: asset["id"] for view in VIEWS},

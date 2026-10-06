@@ -53,9 +53,10 @@ class Store:
             raise ValueError("Asset not found")
         return self.root / "assets" / asset["filename"]
 
-    def create_job(self, request: dict, *, models: dict[str, str] | None = None) -> dict:
+    def create_job(self, request: dict, *, models: dict[str, str] | None = None,
+                   job_id: str | None = None, owner_id: str | None = None) -> dict:
         job = {
-            "id": uuid4().hex,
+            "id": job_id or uuid4().hex,
             "name": request["name"],
             "state": "queued",
             "created": time.time(),
@@ -68,6 +69,8 @@ class Store:
             "pose_asset": None,
             "pose_approved": False,
         }
+        if owner_id is not None:
+            job["owner_id"] = owner_id
         self.save_job(job, new=True)
         return job
 
@@ -90,11 +93,16 @@ class Store:
             row = conn.execute("SELECT document FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def jobs(self, *, active: bool = False) -> list[dict]:
+    def jobs(self, *, active: bool = False, owner_id: str | None = None) -> list[dict]:
         with self.connect() as conn:
             if active:
                 rows = conn.execute(
                     "SELECT document FROM jobs WHERE state IN ('queued','running') ORDER BY created"
+                ).fetchall()
+            elif owner_id is not None:
+                rows = conn.execute(
+                    "SELECT document FROM jobs WHERE json_extract(document,'$.owner_id')=? "
+                    "ORDER BY created DESC LIMIT 100", (owner_id,)
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -119,6 +127,11 @@ class Store:
                 (job["state"], json.dumps(job), job_id),
             )
         return job
+
+    def expired_reviews(self, deadline: float) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT document FROM jobs WHERE state='awaiting_review' AND created<?", (deadline,)).fetchall()
+        return [json.loads(row[0]) for row in rows]
 
 
 def public_asset(asset: dict) -> dict:

@@ -6,12 +6,15 @@ const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=', 'base64');
 
 async function openStudio(page: Page, jobs: unknown[] = []) {
+  if (jobs.length) await page.addInitScript(() => localStorage.setItem('itp.merchant.token', 'history-token'));
   await page.route('**/*', async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname === '/api/capabilities') {
       await route.fulfill({ json: { geometry: false, pose: false, segmentation: false,
         provider: '', pose_provider: '', model: '3.1', pose_model: '' } });
+    } else if (pathname === '/api/account/me') {
+      await route.fulfill({ json: { id: 'history-user', name: 'history', display_name: 'History', role: 'customer', created: 1, contact: '' } });
     } else if (pathname === '/api/jobs') {
       await route.fulfill({ json: jobs });
     } else if (pathname === '/api/settings') {

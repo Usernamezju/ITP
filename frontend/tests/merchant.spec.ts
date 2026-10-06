@@ -42,7 +42,8 @@ const options = {
 
 const profile = {
   merchant_id: 'a'.repeat(32), name: 'demo-shop', display_name: '示例商家',
-  contact: 'demo@example.com', created: 1, quota: 200, garment_count: 2,
+  contact: 'demo@example.com', created: 1, quota: 5, garment_count: 2,
+  upload_usage: { used: 3, limit: 5, remaining: 2, starts: 1, ends: 1800000000 },
 };
 
 function metrics(overrides: Record<string, unknown> = {}) {
@@ -182,7 +183,7 @@ test('signing in opens the shop with its goods and their size ranges', async ({ 
 
   await expect(page.getByText('示例商家')).toBeVisible();
   await expect(page.getByText('@demo-shop · demo@example.com')).toBeVisible();
-  await expect(page.getByText('商品 2/200')).toBeVisible();
+  await expect(page.getByText('本周期上传 3/5 · 商品 2 件')).toBeVisible();
   const row = page.locator('.merchant-goods > li').first();
   await expect(row).toContainText('细罗纹半高领针织');
   await expect(row).toContainText('适合身高 158–176 · 适合胸围 86–96');

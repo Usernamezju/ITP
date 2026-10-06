@@ -13,6 +13,8 @@ import { TryOnPage } from './TryOnPage';
 import { OutfitsPage } from './OutfitsPage';
 import { MerchantPage } from './MerchantPage';
 import { BodyMetricsPanel } from './BodyMetricsPanel';
+import { sessionToken } from './session';
+import { yuanText } from './money';
 import { FaceRefinePanel } from './FaceRefinePanel';
 
 const stageLabels: Record<string, string> = {
@@ -90,6 +92,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'appearance' | 'account'>('workspace');
   const account = useAccountSession();
+  const [modelPrice, setModelPrice] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [colorTheme, setColorTheme] = useState<ColorTheme>(loadColorTheme);
   const [contrastTheme, setContrastTheme] = useState<ContrastTheme>(loadContrastTheme);
@@ -125,7 +128,7 @@ export default function App() {
     async function refresh() {
       try {
         const [capabilities, history] = await Promise.all([
-          api<Capabilities>('/api/capabilities'), api<Job[]>('/api/jobs'),
+          api<Capabilities>('/api/capabilities'), sessionToken.read() ? api<Job[]>('/api/jobs') : Promise.resolve([]),
         ]);
         if (!stopped) { setCaps(capabilities); setJobs(history); }
       } catch (err) { if (!stopped) setError(`连接工作台失败：${(err as Error).message}`); }
@@ -135,6 +138,13 @@ export default function App() {
     return () => { stopped = true; clearTimeout(timer); };
   }, []);
   useEffect(() => () => { if (localModel) URL.revokeObjectURL(localModel.url); }, [localModel]);
+  useEffect(() => {
+    let alive = true;
+    void api<{ model_price_cents: number }>('/api/pricing').then((pricing) => {
+      if (alive) setModelPrice(pricing.model_price_cents);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
   useEffect(() => { applyTheme(colorTheme, contrastTheme); }, [colorTheme, contrastTheme]);
   useEffect(() => {
     if (imagePreview && !imageDialog.current?.open) imageDialog.current?.showModal();
@@ -156,6 +166,7 @@ export default function App() {
     if (mode === 'custom') { setRig(false); setNeutral(false); }
   }
   const generateIssues = [
+    ...(!account.user ? ['请先登录账号，再使用云端建模'] : []),
     ...(!front ? ['请上传角色图片'] : []),
     ...(uploadCount ? ['请等待图片上传完成'] : []),
     ...(!caps ? ['正在连接服务，请稍候'] : !caps.geometry ? ['人体建模服务暂不可用，请稍后再试'] : []),
@@ -257,6 +268,7 @@ export default function App() {
             <Toggle title="额外导出 FBX" description="通过云端转换保留实际模型格式" checked={fbx} onChange={setFbx} />
           </div>
           <div className="generate-footer"><button className="generate-button" disabled={submitting} onClick={() => void generate()}>{submitting ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />} 开始生成<ArrowRight size={16} /></button>
+            {modelPrice !== null && <small>¥{yuanText(modelPrice)} / 次，从钱包扣除；任务失败自动退款。</small>}
             {showGenerateIssues && generateIssues.length > 0 && <div className="generate-issues" role="alert"><strong>还需要完成：</strong><ul>{generateIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
               </div>}
             <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '人体建模暂不可用，仍可上传图片或导入 GLB' : poseMode !== 'original' && !caps.pose ? '姿势编辑暂不可用，可选择原始姿势' : '所选云端生成与处理步骤可能产生费用'}</small></div>

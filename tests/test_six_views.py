@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from itp.api import create_app
+from auth_helpers import fund_client
 from itp.schemas import JobRequest
 
 
@@ -21,6 +22,7 @@ def test_six_view_schema_and_confirmation():
 def test_six_views_reach_geometry_provider(settings, image_bytes, monkeypatch):
     app = create_app(settings, start_worker=False)
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
         ids = {}
         for view in ("front", "back", "left", "right", "left_front", "right_front"):
             response = client.post("/api/assets", files={"file": (f"{view}.png", image_bytes)})
@@ -48,6 +50,7 @@ def test_old_model_rejects_diagonal_views(settings, image_bytes):
     old = settings.model_copy(update={"tencent_model": "3.0"})
     app = create_app(old, start_worker=False)
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
         front = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()["id"]
         diagonal = client.post("/api/assets", files={"file": ("left-front.png", image_bytes)}).json()["id"]
         result = client.post("/api/jobs", json={"front": front, "views": {"left_front": diagonal},

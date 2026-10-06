@@ -8,6 +8,7 @@ from PIL import Image
 from pydantic import SecretStr
 
 from itp.api import create_app
+from auth_helpers import fund_client
 from itp.config import Settings
 from itp.face_refine import REQUIRED_OPERATIONS, FaceVerseProvider, valid_glb
 
@@ -64,6 +65,7 @@ def test_highres_face_photo_and_refinement_workflow(settings):
     store.save_job(source)
 
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client, existing_jobs=True)
         uploaded = client.post("/api/face-photos", files={"file": ("photo.jpg", highres_photo())})
         assert uploaded.status_code == 201, uploaded.text
         photo = uploaded.json()
@@ -134,6 +136,7 @@ def test_faceverse_endpoint_validation_and_independence(settings, image_bytes):
             raise AssertionError(f"Unsafe endpoint accepted: {endpoint}")
     app = create_app(settings, start_worker=False)
     with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
         asset = client.post("/api/assets", files={"file": ("person.png", image_bytes)}).json()
         assert client.get("/api/capabilities").json()["faceverse"] is False
         assert client.post("/api/jobs", json={"front": asset["id"]}).status_code == 201

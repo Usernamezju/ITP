@@ -612,7 +612,7 @@ def public_body_profile(profile: dict | None, job_id: str | None = None) -> dict
 class MerchantStore:
     """SQLite storage for merchant accounts, garments, looks and body profiles."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, settings=None):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.db = self.root / "merchants.sqlite3"
@@ -666,6 +666,8 @@ class MerchantStore:
             if "role" not in columns:
                 conn.execute("ALTER TABLE merchants ADD COLUMN role TEXT NOT NULL "
                              "DEFAULT 'merchant' CHECK (role IN ('customer', 'merchant'))")
+        from itp.commerce import CommerceStore
+        self.commerce = CommerceStore(self, settings)
 
     def connect(self):
         return sqlite3.connect(self.db, timeout=10)
@@ -753,6 +755,7 @@ class MerchantStore:
                                 (token_hash,)).fetchone() is not None
 
     def set_quota(self, merchant_id: str, quota: int) -> bool:
+        """Compatibility-only legacy field; plans now control period uploads."""
         with self._lock, self.connect() as conn:
             cursor = conn.execute(
                 "UPDATE merchants SET quota = ? WHERE id = ?", (int(quota), merchant_id)
@@ -778,19 +781,9 @@ class MerchantStore:
     # ------------------------------------------------------------------- garments
 
     def create_garment(self, merchant_id: str, metrics: dict) -> dict:
-        """Insert one garment, refusing to pass the merchant's quota."""
+        """Consume one period upload atomically; deletion never restores usage."""
         with self._lock, self.connect() as conn:
-            merchant = conn.execute(
-                "SELECT quota FROM merchants WHERE id = ?", (merchant_id,)
-            ).fetchone()
-            if merchant is None:
-                raise ValueError("商家不存在")
-            quota = merchant[0] if merchant[0] is not None else 0
-            used = conn.execute(
-                "SELECT COUNT(*) FROM garments WHERE merchant_id = ?", (merchant_id,)
-            ).fetchone()[0]
-            if used >= quota:
-                raise QuotaExceeded(f"商品数量已达配额上限（{quota} 件）")
+            conn.execute("BEGIN IMMEDIATE")
             if metrics.get("sku"):
                 clash = conn.execute(
                     "SELECT 1 FROM garments WHERE merchant_id = ? AND "
@@ -799,6 +792,11 @@ class MerchantStore:
                 ).fetchone()
                 if clash:
                     raise AlreadyExists("该货号已存在")
+            from itp.commerce import CommerceError
+            try:
+                self.commerce.consume_upload(conn, merchant_id)
+            except CommerceError as exc:
+                raise QuotaExceeded(str(exc)) from exc
             garment_id = uuid4().hex
             created = time.time()
             conn.execute(

@@ -45,6 +45,7 @@ export function fetchGarmentOptions(): Promise<GarmentOptions> {
 export type MerchantProfile = {
   merchant_id: string; name: string; display_name: string; contact: string;
   created: number; quota: number; garment_count: number;
+  upload_usage?: { used: number; limit: number; remaining: number; starts: number; ends: number };
 };
 
 export type RegisterFields = {

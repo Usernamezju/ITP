@@ -25,6 +25,8 @@ flowchart TD
 | --- | --- | --- |
 | Web | 上传、业务选项、姿势审核、任务历史、3D 预览、浏览器外观 | React / TypeScript / Three.js |
 | API | 输入校验、任务/产物接口、配置能力公开 | FastAPI / Pydantic |
+| Accounts | 统一顾客/商家身份、会话吊销和资料 | 原商家凭据表 / scrypt / JWT |
+| Commerce | 整数分钱包流水、幂等扣费退款、套餐快照和周期消耗 | 同一 merchants.sqlite3 / BEGIN IMMEDIATE |
 | Preprocessing | 图片归一化、可选前景分割 | Pillow / ONNX Runtime CPU |
 | Pose | 角色 + 姿势图的多图编辑 | 阿里云百炼国内端点 |
 | Geometry | 图像编码、几何推理、网格提取 | 腾讯混元云端内部实现，客户端不伪造独立 encoder |
@@ -58,5 +60,5 @@ flowchart TD
 显示“暂不可用”，不引导用户填写密钥。公网 Nginx 和配置了 public origin 的
 FastAPI 都拒绝旧 `/api/settings`，该维护路径不在 OpenAPI 中公开。
 
-账号、计费、权益、支付以及顾客资产的本地化属于后续商业模块，当前状态见
+账号、计费及周期权益已实现；支付以及顾客资产的本地化仍在后续商业模块，当前状态见
 [实施计划](PLAN.md)；这一边界调整没有迁移或删除存量顾客数据。

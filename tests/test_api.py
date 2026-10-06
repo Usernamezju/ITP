@@ -7,10 +7,11 @@ from PIL import Image
 from itp.api import create_app
 from itp.config import Settings
 from itp.schemas import JobRequest
+from auth_helpers import fund_client
 
 
 def client_for(settings):
-    return TestClient(create_app(settings, start_worker=False), base_url="http://localhost:8000")
+    return fund_client(TestClient(create_app(settings, start_worker=False), base_url="http://localhost:8000"))
 
 
 def test_empty_configuration_allows_upload_but_never_submits(tmp_path, image_bytes):

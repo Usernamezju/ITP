@@ -36,6 +36,14 @@ async function openAccount(page: Page, signedIn = false) {
     } else if (path === '/api/auth/logout') {
       expect(route.request().headers()['authorization']).toBe('Bearer customer-token');
       await route.fulfill({ json: { logged_out: true } });
+    } else if (path === '/api/account/commerce') {
+      await route.fulfill({ json: { balance_cents: 8765, entitlements: {}, subscriptions: [], upload_usage: null } });
+    } else if (path === '/api/account/ledger') {
+      await route.fulfill({ json: { items: [] } });
+    } else if (path === '/api/pricing') {
+      await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
+        { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567,
+          period_months: 12, purchasable: true, entitlements: {} }] } });
     } else if (path === '/api/account/password') {
       await route.fulfill({ json: { changed: true, tokens_revoked: true } });
     } else {
@@ -56,6 +64,9 @@ test('avatar opens unified registration and restores the session on reload', asy
   await page.getByLabel('账号身份').selectOption('customer');
   await page.getByRole('button', { name: '注册并登录' }).click();
   await expect(page.getByRole('heading', { name: '个人资料' })).toBeVisible();
+  await expect(page.getByText('¥87.65', { exact: true })).toBeVisible();
+  await expect(page.getByText('人体建模：¥23.45 / 次')).toBeVisible();
+  await expect(page.getByText('个性化推荐年会员：¥45.67 / 12 个月')).toBeVisible();
   expect(writes.find((item) => item.path === '/api/auth/register')?.body.role).toBe('customer');
   await page.reload();
   await page.getByRole('button', { name: '打开账号菜单' }).click();
