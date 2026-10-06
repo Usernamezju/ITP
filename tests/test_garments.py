@@ -414,7 +414,7 @@ def test_metrics_accept_the_documented_values():
     assert document["attributes"]["weight_gsm"] == 320
     assert document["status"] == "published"
     assert set(document) == {
-        "category", "name", "sku", "brand", "price_cents", "measurements", "fit_ranges",
+        "category", "name", "sku", "brand", "price_cents", "purchase_url", "measurements", "fit_ranges",
         "attributes", "style", "season", "occasion", "description", "tips", "status",
     }
     # Optional fields clear with an explicit null.

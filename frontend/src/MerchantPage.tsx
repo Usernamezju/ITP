@@ -27,7 +27,7 @@ import './MerchantPage.css';
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/;
 
 type Draft = {
-  category: string; name: string; brand: string; sku: string; price: string;
+  category: string; name: string; brand: string; sku: string; price: string; purchase_url: string;
   style: string; season: string; occasion: string; status: 'draft' | 'published';
   description: string; tips: string; color: string; silhouette: string;
   stretch: string; length_type: string; weight: string;
@@ -37,7 +37,7 @@ type Draft = {
 
 function emptyDraft(options: GarmentOptions): Draft {
   return {
-    category: options.categories[0] || '', name: '', brand: '', sku: '', price: '',
+    category: options.categories[0] || '', name: '', brand: '', sku: '', price: '', purchase_url: '',
     style: options.styles[0] || '', season: options.seasons[0] || '',
     occasion: '', status: 'draft', description: '', tips: '',
     color: '#cccccc', silhouette: options.silhouettes[0] || '',
@@ -58,6 +58,7 @@ function draftFrom(garment: MerchantGarment, options: GarmentOptions): Draft {
   draft.brand = metrics.brand || '';
   draft.sku = metrics.sku || '';
   draft.price = metrics.price_cents == null ? '' : yuanText(metrics.price_cents);
+  draft.purchase_url = metrics.purchase_url || '';
   draft.style = metrics.style || draft.style;
   draft.season = metrics.season || draft.season;
   draft.occasion = metrics.occasion || '';
@@ -101,6 +102,15 @@ function validate(draft: Draft, options: GarmentOptions): Record<string, string>
     const cents = parseYuan(draft.price);
     if (cents == null) errors.price = '价格必须不小于 0，且最多两位小数';
     else if (cents > limits.price_max_cents) errors.price = '价格超出可接受范围';
+  }
+  if (draft.purchase_url.trim()) {
+    const value = draft.purchase_url.trim();
+    try {
+      const url = new URL(value);
+      if (!/^https?:\/\//i.test(value) || !['http:', 'https:'].includes(url.protocol)
+        || !url.hostname || url.username || url.password || /[\s\\]/.test(value)
+        || value.length > (limits.purchase_url_max || 2048)) throw new Error();
+    } catch { errors.purchase_url = '购买链接仅支持有效的 http:// 或 https:// 地址，不能包含账号密码'; }
   }
   if (draft.description.length > limits.description_max) {
     errors.description = `描述不能超过 ${limits.description_max} 个字符`;
@@ -154,6 +164,7 @@ function metricsFrom(draft: Draft, options: GarmentOptions): GarmentMetrics {
     brand: draft.brand.trim() || null,
     sku: draft.sku.trim() || null,
     price_cents: draft.price.trim() ? parseYuan(draft.price) : null,
+    purchase_url: draft.purchase_url.trim() || null,
     style: draft.style || null,
     season: draft.season || null,
     occasion: draft.occasion.trim() || null,
@@ -383,6 +394,13 @@ function GarmentEditor({ options, garment, onSaved, onCancel, onError }: {
           inputMode="decimal" placeholder="选填，例如 269" value={draft.price}
           onChange={(event) => update({ price: event.target.value })} />
         {field('price') && <p className="field-error">{field('price')}</p>}
+        <label className="field-label" htmlFor="g-purchase-url">商品购买链接（选填）</label>
+        <input id="g-purchase-url" className={`text-input ${errors.purchase_url ? 'invalid' : ''}`}
+          type="url" placeholder="https://item.taobao.com/…" maxLength={limits.purchase_url_max || 2048}
+          value={draft.purchase_url} aria-invalid={Boolean(errors.purchase_url)} aria-describedby="g-link-help"
+          onChange={(event) => update({ purchase_url: event.target.value })} />
+        <small id="g-link-help">支持淘宝、天猫、京东、品牌官网等 HTTP/HTTPS 链接</small>
+        {errors.purchase_url && <p className="field-error" role="alert">{errors.purchase_url}</p>}
         <label className="field-label" htmlFor="g-description">商品描述</label>
         <textarea id="g-description" className={`text-input ${field('description') ? 'invalid' : ''}`}
           rows={3} maxLength={limits.description_max} value={draft.description}

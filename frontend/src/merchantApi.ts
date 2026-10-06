@@ -28,7 +28,7 @@ export type GarmentOptions = {
   fit_ranges: RangeOption[];
   body_profile: RangeOption[];
   limits: {
-    name_max: number; short_text_max: number; description_max: number;
+    purchase_url_max?: number; name_max: number; short_text_max: number; description_max: number;
     tips_max: number; tip_max: number; price_max_cents: number;
     weight_gsm_min: number; weight_gsm_max: number; image_max_mb: number;
     images_max: number; palette_max: number; look_items_max: number;
@@ -92,6 +92,7 @@ export type GarmentMetrics = {
   sku?: string | null;
   brand?: string | null;
   price_cents?: number | null;
+  purchase_url?: string | null;
   measurements: Record<string, number | null>;
   fit_ranges: Record<string, [number, number] | null>;
   attributes: {

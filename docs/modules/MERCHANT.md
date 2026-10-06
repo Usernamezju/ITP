@@ -70,6 +70,7 @@ python scripts/reset_merchant_password.py --name demo-shop --password 自己的�
 | `status` | ★ | `draft` / `published` | 枚举 |
 | `sku` | | 文本，商家自己的货号 | ≤ 80 字；同一商家内唯一，`null` 表示无货号 |
 | `brand` | | 文本 | ≤ 80 字 |
+| `purchase_url` | | HTTP/HTTPS 地址或 null | ≤2048 字；拒绝危险协议、账号密码、空白；空字符串/null 清除 |
 | `price_cents` | | 整数，单位分 | 0 – 10¹² |
 | `measurements` | | 对象，单位 cm | 每项 > 0 且 ≤ 300 |
 | `measurements.shoulder_cm` `bust_cm` `waist_cm` `hip_cm` `length_cm` `hem_cm` | | 数字 | 同上 |
@@ -259,3 +260,15 @@ with httpx.Client(base_url="http://127.0.0.1:8000") as client:
 - `ITP_JWT_SECRET` 与密码哈希都存在本机 `.env` / SQLite 中，`data/` 已被 Git 忽略；不要把 `.env`、`data/` 或任何密钥提交到仓库。
 - 图片与指标按商家隔离：读取他人商品一律 404，不泄露 id 是否存在。
 - 对公网开放前必须先补齐：HTTPS、请求限流、审计日志、按商家的资源配额与磁盘清理、令牌刷新与主动吊销接口、以及备份与恢复流程。
+
+## 商品购买链接迁移
+
+`purchase_url` 为可选字段，与现有商品指标一起在创建 multipart 的 `payload`
+和编辑 PATCH 中传入；接口返回于 `metrics.purchase_url`。未传时保留原值，
+`null` 或空字符串清除。服务端校验协议、主机、长度和控制字符，不下载外链内容。
+商家表单同时校验并在字段旁显示中文错误。
+
+API 启动在写事务内检查 `PRAGMA table_info(garments)`，仅新增 nullable
+`purchase_url TEXT` 列；旧行默认为 null。该列是读取时的权威值，新增/编辑
+与指标 JSON 同事务写入。迁移可重复运行，不重建或清空账号、商品、钱包、
+订单、会员或任务。升级前使用 SQLite 在线备份 API 备份原库。

@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 # --- metric vocabulary -------------------------------------------------------
 
@@ -43,6 +44,7 @@ METRIC_FIELDS = (
     "sku",
     "brand",
     "price_cents",
+    "purchase_url",
     "measurements",
     "fit_ranges",
     "attributes",
@@ -67,6 +69,7 @@ TIPS_MAX = 3
 TIP_MAX = 120
 NAME_MAX = 200
 SHORT_TEXT_MAX = 80
+PURCHASE_URL_MAX = 2048
 IMAGE_MAX_MB = 10
 MAX_GARMENT_IMAGES = 8
 
@@ -172,6 +175,26 @@ def _number(value: Any, field: str) -> float:
     if math.isnan(number) or math.isinf(number):
         raise ValueError(f"{field} 必须是有效数字")
     return number
+
+
+def normalize_purchase_url(value: Any) -> str | None:
+    """Validate an external destination; never fetch it on the server."""
+    if value is None:
+        return None
+    text = _text(value, "购买链接", max_length=PURCHASE_URL_MAX)
+    if not text:
+        return None
+    try:
+        parsed = urlsplit(text)
+        valid = (parsed.scheme.lower() in {"http", "https"}
+                 and text.lower().startswith(("http://", "https://"))
+                 and parsed.hostname and parsed.port != 0
+                 and parsed.username is None and parsed.password is None)
+    except ValueError:
+        valid = False
+    if not valid or "\\" in text or any(char.isspace() for char in text):
+        raise ValueError("购买链接仅支持有效的 http:// 或 https:// 地址，不能包含账号密码")
+    return text
 
 
 def _enum(value: Any, field: str, allowed: tuple[str, ...]) -> str:
@@ -301,6 +324,7 @@ def normalize_metrics(payload: Any, base: dict | None = None) -> dict:
         "sku": current.get("sku"),
         "brand": current.get("brand"),
         "price_cents": current.get("price_cents"),
+        "purchase_url": current.get("purchase_url"),
         "style": current.get("style"),
         "season": current.get("season"),
         "occasion": current.get("occasion"),
@@ -379,6 +403,9 @@ def normalize_metrics(payload: Any, base: dict | None = None) -> dict:
             if raw < 0 or raw > PRICE_MAX_CENTS:
                 raise ValueError(f"price_cents 必须在 0 到 {PRICE_MAX_CENTS} 之间")
             values["price_cents"] = raw
+
+    if "purchase_url" in payload:
+        values["purchase_url"] = normalize_purchase_url(payload["purchase_url"])
 
     for key in SECTIONS:
         if not isinstance(values[key], dict):
@@ -533,6 +560,7 @@ def options_document() -> dict[str, Any]:
             "tips_max": TIPS_MAX,
             "tip_max": TIP_MAX,
             "price_max_cents": PRICE_MAX_CENTS,
+            "purchase_url_max": PURCHASE_URL_MAX,
             "weight_gsm_min": WEIGHT_GSM_MIN,
             "weight_gsm_max": WEIGHT_GSM_MAX,
             "image_max_mb": IMAGE_MAX_MB,
@@ -671,6 +699,13 @@ class MerchantStore:
                 # SQLite cannot alter a CHECK constraint, so a table created
                 # before the admin role is rebuilt once, inside a transaction.
                 self._migrate_merchants_for_admin(conn)
+            # A nullable column preserves old rows and all unrelated tables.
+            # Serialize schema inspection with other starting API processes.
+            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(garments)")}
+            if "purchase_url" not in columns:
+                conn.execute("ALTER TABLE garments ADD COLUMN purchase_url TEXT")
         from itp.commerce import CommerceStore
         self.commerce = CommerceStore(self, settings)
 
@@ -888,8 +923,8 @@ class MerchantStore:
             garment_id = uuid4().hex
             created = time.time()
             conn.execute(
-                "INSERT INTO garments (id, merchant_id, metrics, status, created, updated) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO garments (id, merchant_id, metrics, status, created, updated, purchase_url) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     garment_id,
                     merchant_id,
@@ -897,6 +932,7 @@ class MerchantStore:
                     metrics.get("status"),
                     created,
                     created,
+                    normalize_purchase_url(metrics.get("purchase_url")),
                 ),
             )
         return self.garment(garment_id)
@@ -906,7 +942,7 @@ class MerchantStore:
             return None
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id, merchant_id, metrics, status, created, updated FROM garments "
+                "SELECT id, merchant_id, metrics, status, created, updated, purchase_url FROM garments "
                 "WHERE id = ?",
                 (garment_id,),
             ).fetchone()
@@ -944,7 +980,7 @@ class MerchantStore:
                 f"SELECT COUNT(*) FROM garments WHERE {where}", params
             ).fetchone()[0]
             rows = conn.execute(
-                "SELECT id, merchant_id, metrics, status, created, updated FROM garments "
+                "SELECT id, merchant_id, metrics, status, created, updated, purchase_url FROM garments "
                 f"WHERE {where} ORDER BY created DESC, id DESC LIMIT ? OFFSET ?",
                 [*params, limit, offset],
             ).fetchall()
@@ -977,7 +1013,7 @@ class MerchantStore:
                 f"SELECT COUNT(*) FROM garments WHERE {where}", params
             ).fetchone()[0]
             rows = conn.execute(
-                "SELECT id, merchant_id, metrics, status, created, updated FROM garments "
+                "SELECT id, merchant_id, metrics, status, created, updated, purchase_url FROM garments "
                 f"WHERE {where} ORDER BY created DESC, id DESC LIMIT ? OFFSET ?",
                 [*params, limit, offset],
             ).fetchall()
@@ -999,11 +1035,12 @@ class MerchantStore:
                 if clash:
                     raise AlreadyExists("该货号已存在")
             conn.execute(
-                "UPDATE garments SET metrics = ?, status = ?, updated = ? WHERE id = ?",
+                "UPDATE garments SET metrics = ?, status = ?, updated = ?, purchase_url = ? WHERE id = ?",
                 (
                     json.dumps(metrics, ensure_ascii=False),
                     metrics.get("status"),
                     time.time(),
+                    normalize_purchase_url(metrics.get("purchase_url")),
                     garment_id,
                 ),
             )
@@ -1039,7 +1076,7 @@ class MerchantStore:
         return {
             "id": row[0],
             "merchant_id": row[1],
-            "metrics": json.loads(row[2]),
+            "metrics": {**json.loads(row[2]), "purchase_url": row[6]},
             "status": row[3],
             "created": row[4],
             "updated": row[5],
@@ -1305,7 +1342,7 @@ class MerchantStore:
             clause += " AND status = 'published'"
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT id, merchant_id, metrics, status, created, updated FROM garments "
+                "SELECT id, merchant_id, metrics, status, created, updated, purchase_url FROM garments "
                 f"WHERE {clause}",
                 garment_ids,
             ).fetchall()
