@@ -2,7 +2,7 @@ import { sessionToken } from './session';
 
 export type Asset = {
   id: string; url: string; kind: string; width?: number; height?: number;
-  size: number; format?: string; background_removed?: boolean;
+  size: number; format?: string; background_removed?: boolean; remove_background?: boolean;
 };
 export type TryOnProvider = 'seedream' | 'flux' | 'flux_max' | 'flux_klein' | 'flux_klein_9b' | 'gpt_image';
 export type Capabilities = {
