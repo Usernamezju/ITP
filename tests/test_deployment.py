@@ -19,7 +19,7 @@ def test_only_jwt_guarded_merchant_routes_bypass_basic_auth():
     config = (Path(__file__).parents[1] / "deploy/autodl/nginx-itp.conf").read_text()
     guard = r"^/api/merchant/(me|password|garments|looks)(/|$)"
     route = config.split(f"location ~ {guard} {{", 1)[1].split("\n    }", 1)[0]
-    assert config.count("auth_basic off;") == 5
+    assert config.count("auth_basic off;") == 6
     assert "auth_basic off;" in route
     assert "client_max_body_size 81m;" in route
     assert "proxy_pass http://127.0.0.1:8000;" in route
@@ -29,4 +29,19 @@ def test_only_jwt_guarded_merchant_routes_bypass_basic_auth():
         assert pattern.search(path)
     for path in ("/api/settings", "/api/merchant/login", "/api/merchant/register",
                  "/api/merchant/me-spoof", "/", "/api/body-profile"):
+        assert not pattern.search(path)
+
+
+def test_only_the_admin_api_bypasses_basic_auth_for_the_console():
+    config = (Path(__file__).parents[1] / "deploy/autodl/nginx-itp.conf").read_text()
+    guard = r"^/api/admin(/|$)"
+    route = config.split(f"location ~ {guard} {{", 1)[1].split("\n    }", 1)[0]
+    assert "auth_basic off;" in route
+    assert "proxy_pass http://127.0.0.1:8000;" in route
+    pattern = re.compile(guard)
+    for path in ("/api/admin/status", "/api/admin/settings", "/api/admin/accounts",
+                 "/api/admin/usage", "/api/admin/orders", "/api/admin/jobs"):
+        assert pattern.search(path)
+    for path in ("/api/admin-backdoor", "/api/administrator", "/admin", "/api/settings",
+                 "/api/merchant/me"):
         assert not pattern.search(path)

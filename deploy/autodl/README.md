@@ -41,6 +41,26 @@ merchant tokens are rejected by FastAPI. The proxy allows up to 81 MiB on these
 paths for eight 10 MiB images plus multipart overhead; the application still
 enforces per-image, total-body and route-specific limits.
 
+## Admin console
+
+`/admin` is a read-only operator console for the platform developer. Create the
+administrator account on the server; registration can never mint one:
+
+```bash
+cd /root/autodl-tmp/itp-app && .venv/bin/python scripts/create_admin.py --name admin
+```
+
+The script asks for the password (or reads `ITP_ADMIN_PASSWORD`), refuses to
+overwrite an existing account and never prints the password. `/api/admin/*`
+bypasses Basic Authentication for the same header-conflict reason as the
+merchant routes, and every route still requires an admin Bearer token in
+FastAPI: customers, merchants and anonymous visitors get 401/403. The console
+shows system status, provider settings without secret values, account and
+product totals, wallet/charge aggregates, orders and the tasks currently in
+RAM. It has no write endpoint, so provider credentials remain `.env`-owned:
+edit the server `.env` and restart `itp-api`. The `/admin` page itself sits
+behind the site password like the rest of the site.
+
 Unified `/api/auth/register`, `/login`, `/logout` and `/api/account/me`, `/password`
 also bypass Basic Authentication to avoid the same header conflict. Registration
 and login are rate-limited by the application; account routes validate JWTs and

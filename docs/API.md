@@ -36,6 +36,12 @@ Host 仅允许回环名称，公网由受控 Nginx 转发。
 | POST | /api/face-refinements/{id}/acknowledge | Bearer；同 jobs 的确认删除 |
 | GET | /api/outfits | 公开；不含顾客数据的通用推荐目录 |
 | POST | /api/outfits/recommend | Bearer；本机 GLB 与人体数值单次上传，算完即删 |
+| GET | /api/admin/status | Bearer + admin；服务状态、各模型 provider 就绪情况、FaceVerse/Klein 探针 |
+| GET | /api/admin/settings | Bearer + admin；模型服务配置，密钥只回 `*_set` 布尔 |
+| GET | /api/admin/accounts | Bearer + admin；账号列表（含角色、禁用、商品数），limit/offset |
+| GET | /api/admin/usage | Bearer + admin；扣费、钱包、商品、套装与订单聚合 |
+| GET | /api/admin/orders | Bearer + admin；全部支付订单（带账号名），limit/offset |
+| GET | /api/admin/jobs | Bearer + admin；服务端当前保留的建模/试穿/精修任务 |
 
 上传需包含 Content-Length；上限约 10 MiB 加 multipart 开销。图片再经实际读取长度与解码验证。无图像资产或资产类型错误返回 422。任务输入禁止任意公网 URL，由本地已上传资产 ID 引用。
 
@@ -44,5 +50,11 @@ JobRequest 的完整模式以 OpenAPI 为准。主要参数为 front、views、p
 响应状态码：404 为不存在，409 为审核状态不匹配，413 为过大，422 为输入无效，503 为所需服务或本地权重未配置。云端执行错误写入任务 state=failed，不把供应商返回的敏感正文暴露出来。
 
 客户端不提供 API Key 设置功能，也不调用配置接口。平台模型配置由运维通过服务端 `.env` / 环境变量管理，变更后重启后端。公网 `/api/settings` 返回 404，OpenAPI 不列出旧配置接口；仅无公网 origin、无浏览器 Origin、无代理转发的本地 CLI 维护请求保留兼容。
+
+`/api/admin/*` 是只读管理后台数据面，全部要求 Bearer 且账号角色为 `admin`
+（顾客与商家返回 403，被禁用账号同样 403），同样不出现在 OpenAPI 中，响应
+`Cache-Control: no-store`。admin 账号只能由服务器执行 `scripts/create_admin.py`
+创建，注册接口拒绝该角色；这些接口没有写入口，模型凭据的修改仍走服务端
+`.env` 并重启。`/api/admin/jobs` 只反映服务端当前保留的临时任务，不伪造历史。
 
 旧 CLI 维护接口只接受 `tencent_endpoint`、`tencent_region`、`tencent_model`、`tencent_secret_id`、`tencent_secret_key`、`pose_endpoint`、`pose_model`、`pose_api_key`。`PATCH` 可只提交修改的字段；密钥只允许写入，读取接口返回对应的 `*_set` 布尔值。若字段由进程环境变量提供，修改该字段返回 409。设置响应使用 `Cache-Control: no-store`。配置文件保存为仅当前用户可读写；现有配置文件的其他字段和注释保留。

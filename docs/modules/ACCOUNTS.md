@@ -8,9 +8,16 @@
 ## 存储与迁移
 
 复用 `MerchantStore` 和 `merchants.sqlite3` 中原有 `merchants` 凭据表，增加
-`role`（`customer` / `merchant`）列，旧行默认为商家。历史表名保留，以免
-复制账号、修改商品外键或丢失 scrypt 哈希。迁移只增加列及 `auth_revocations`
-表，可重复启动；旧账号 ID、哈希和商品不变。顾客的 legacy quota 为 0。
+`role`（`customer` / `merchant` / `admin`）列，旧行默认为商家。历史表名保留，
+以免复制账号、修改商品外键或丢失 scrypt 哈希。迁移只增加列及
+`auth_revocations` 表，可重复启动；旧账号 ID、哈希和商品不变。顾客的 legacy
+quota 为 0。
+
+`admin` 角色只能由服务器本地的 `scripts/create_admin.py` 创建：注册接口的
+role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。早期
+数据库的角色 CHECK 只允许前两个角色，SQLite 不能直接修改 CHECK，因此首次
+以新版启动时会在一笔事务内重建该表，重建前先用 SQLite 备份 API 写出
+`merchants.sqlite3.bak`；迁移幂等，账号 ID、哈希、余额和商品归属均原样保留。
 
 `auth_revocations` 只保存已吊销令牌的 SHA-256、账号 ID、到期时间，不保存
 原始 JWT。注销仅吊销当前令牌；改密或运维重置使所有旧密码指纹失效。
@@ -28,6 +35,7 @@
 | GET | `/api/account/me` | Bearer；个人资料，不含哈希与平台凭据 |
 | PATCH | `/api/account/me` | Bearer；仅 display_name/contact 部分更新，拒绝 null |
 | POST | `/api/account/password` | Bearer；current_password/new_password，成功后重新登录 |
+| GET | `/api/admin/status` 等 | Bearer + admin 角色；只读管理后台数据，见 [Web 工作台](WEB.md) |
 
 旧 `/api/merchant/register`、`login` 和 `password` 委托同一实现，兼容旧调用方；
 商家登录和所有商家业务接口必须是 merchant 角色。普通顾客请求商家接口得到
@@ -58,5 +66,7 @@
 
 `tests/test_accounts.py` 覆盖两种角色、老账号迁移、统一旧接口、越权、资料
 边界、注销持久化、随机令牌、改密全会话吊销、限流、校验脱敏、精确到期和
-公网签名密钥持久化失败。`frontend/tests/accounts.spec.ts` 在桌面/手机覆盖
-头像、注册登录、刷新恢复、资料保存、退出、顾客商家限制与改密。
+公网签名密钥持久化失败。`tests/test_admin_api.py` 覆盖 admin 角色迁移
+（旧 CHECK 重建、备份、幂等、新库）、CLI 白名单、注册仍拒绝 admin，以及
+`/api/admin/*` 的 401/403/禁用账号与只读数据。`frontend/tests/accounts.spec.ts`
+在桌面/手机覆盖头像、注册登录、刷新恢复、资料保存、退出、顾客商家限制与改密。
