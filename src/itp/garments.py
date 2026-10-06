@@ -626,6 +626,10 @@ class MerchantStore:
                     contact TEXT, password_hash TEXT, created REAL,
                     disabled INTEGER DEFAULT 0, quota INTEGER
                 );
+                CREATE TABLE IF NOT EXISTS auth_revocations (
+                    token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS auth_revocations_expiry ON auth_revocations (expires);
                 CREATE TABLE IF NOT EXISTS garments (
                     id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, metrics TEXT NOT NULL,
                     status TEXT, created REAL, updated REAL
@@ -656,6 +660,13 @@ class MerchantStore:
                 """
             )
 
+            # Evolve the existing credential table rather than creating a second
+            # authentication store. Existing ids, hashes and products stay intact.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(merchants)")}
+            if "role" not in columns:
+                conn.execute("ALTER TABLE merchants ADD COLUMN role TEXT NOT NULL "
+                             "DEFAULT 'merchant' CHECK (role IN ('customer', 'merchant'))")
+
     def connect(self):
         return sqlite3.connect(self.db, timeout=10)
 
@@ -669,16 +680,19 @@ class MerchantStore:
         contact: str,
         password_hash: str,
         quota: int,
+        role: str = "merchant",
     ) -> dict:
+        if role not in {"customer", "merchant"}:
+            raise ValueError("Invalid account role")
         merchant_id = uuid4().hex
         created = time.time()
         with self._lock, self.connect() as conn:
             try:
                 conn.execute(
                     "INSERT INTO merchants "
-                    "(id, name, display_name, contact, password_hash, created, disabled, quota) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-                    (merchant_id, name, display_name, contact, password_hash, created, quota),
+                    "(id, name, display_name, contact, password_hash, created, disabled, quota, role) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                    (merchant_id, name, display_name, contact, password_hash, created, quota, role),
                 )
             except sqlite3.IntegrityError as exc:
                 raise AlreadyExists("商家名称已被占用") from exc
@@ -689,7 +703,7 @@ class MerchantStore:
             return None
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota "
+                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota, role "
                 "FROM merchants WHERE id = ?",
                 (merchant_id,),
             ).fetchone()
@@ -698,7 +712,7 @@ class MerchantStore:
     def merchant_by_name(self, name: str) -> dict | None:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota "
+                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota, role "
                 "FROM merchants WHERE name = ?",
                 (name,),
             ).fetchone()
@@ -721,6 +735,23 @@ class MerchantStore:
             )
         return cursor.rowcount > 0
 
+    def update_account_profile(self, user_id: str, *, display_name: str, contact: str) -> dict:
+        with self._lock, self.connect() as conn:
+            conn.execute("UPDATE merchants SET display_name = ?, contact = ? WHERE id = ?",
+                         (display_name, contact, user_id))
+        return self.merchant(user_id)
+
+    def revoke_token(self, token_hash: str, user_id: str, expires: int) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute("DELETE FROM auth_revocations WHERE expires <= ?", (int(time.time()),))
+            conn.execute("INSERT OR IGNORE INTO auth_revocations VALUES (?, ?, ?)",
+                         (token_hash, user_id, expires))
+
+    def token_revoked(self, token_hash: str) -> bool:
+        with self.connect() as conn:
+            return conn.execute("SELECT 1 FROM auth_revocations WHERE token_hash = ?",
+                                (token_hash,)).fetchone() is not None
+
     def set_quota(self, merchant_id: str, quota: int) -> bool:
         with self._lock, self.connect() as conn:
             cursor = conn.execute(
@@ -741,6 +772,7 @@ class MerchantStore:
             "created": row[5],
             "disabled": bool(row[6]),
             "quota": row[7] if row[7] is not None else 0,
+            "role": row[8],
         }
 
     # ------------------------------------------------------------------- garments

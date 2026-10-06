@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Declared so the OpenAPI document carries the scheme and /docs offers an
 # Authorize button; the token is still validated by current_merchant below.
-bearer_scheme = HTTPBearer(
-    auto_error=False, description="商家登录 /api/merchant/login 返回的 access_token"
-)
+bearer_scheme = HTTPBearer(auto_error=False, description="用户登录 /api/auth/login 返回的 access_token")
 
 # Cost parameters fixed by the project: 2**14 memory-ish cost, r=8, p=1.
 SCRYPT_N = 2**14
@@ -54,7 +52,7 @@ def _b64url(raw: bytes) -> str:
 
 def _unb64url(text: str) -> bytes:
     padding = "=" * (-len(text) % 4)
-    return base64.urlsafe_b64decode(text + padding)
+    return base64.b64decode(text + padding, altchars=b"-_", validate=True)
 
 
 def hash_password(password: str) -> str:
@@ -118,7 +116,8 @@ def encode_token(
     issued = int(now if now is not None else time.time())
     expires_in = max(int(hours), 1) * 3600
     header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
-    payload: dict[str, Any] = {"sub": merchant_id, "iat": issued, "exp": issued + expires_in}
+    payload: dict[str, Any] = {"sub": merchant_id, "iat": issued, "exp": issued + expires_in,
+                               "jti": secrets.token_hex(16)}
     if password_hash:
         payload["pwd"] = password_fingerprint(password_hash)
     signing_input = f"{_b64url(_json_bytes(header))}.{_b64url(_json_bytes(payload))}"
@@ -129,7 +128,7 @@ def encode_token(
 def decode_token(secret: str, token: str, *, now: float | None = None) -> dict[str, Any]:
     """Verify a token and return its claims, raising ValueError when invalid."""
     parts = token.split(".")
-    if len(parts) != 3:
+    if len(parts) != 3 or len(token) > 4096 or not token.isascii():
         raise ValueError("malformed token")
     header_text, payload_text, signature_text = parts
     signing_input = f"{header_text}.{payload_text}"
@@ -150,9 +149,9 @@ def decode_token(secret: str, token: str, *, now: float | None = None) -> dict[s
     if not isinstance(payload, dict) or not isinstance(payload.get("sub"), str):
         raise ValueError("missing subject")
     expires = payload.get("exp")
-    if not isinstance(expires, int):
+    if type(expires) is not int:
         raise ValueError("missing expiry")
-    if int(now if now is not None else time.time()) > expires + JWT_LEEWAY_SECONDS:
+    if int(now if now is not None else time.time()) >= expires + JWT_LEEWAY_SECONDS:
         raise ValueError("token expired")
     return payload
 
@@ -225,6 +224,9 @@ def resolve_jwt_secret(app) -> str:
             save_env_value(path, "jwt_secret", generated)
             logger.info("Generated ITP_JWT_SECRET and wrote it to %s", path)
         except OSError:
+            if app.state.settings.public_origin:
+                logger.error("Cannot persist authentication secret for public deployment")
+                raise HTTPException(503, "账号登录服务暂不可用，请联系平台维护人员")
             logger.warning(
                 "Could not write ITP_JWT_SECRET to %s; using a temporary secret that "
                 "invalidates every token on restart",
@@ -242,7 +244,7 @@ def bearer_token(request: Request) -> str | None:
     return token or None
 
 
-def current_merchant(
+def current_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> dict:
@@ -255,7 +257,7 @@ def current_merchant(
     token = credentials.credentials if credentials else bearer_token(request)
     if not token:
         raise HTTPException(
-            401, "请先登录商家账号", headers={"WWW-Authenticate": "Bearer"}
+            401, "请先登录账号", headers={"WWW-Authenticate": "Bearer"}
         )
     secret = resolve_jwt_secret(request.app)
     try:
@@ -269,15 +271,25 @@ def current_merchant(
         raise HTTPException(
             401, "登录状态无效或已过期，请重新登录", headers={"WWW-Authenticate": "Bearer"}
         )
+    if request.app.state.merchants.token_revoked(hashlib.sha256(token.encode()).hexdigest()):
+        raise HTTPException(401, "已退出登录，请重新登录", headers={"WWW-Authenticate": "Bearer"})
     # A token carries the password it was issued under, so changing the password
     # revokes everything older without any server-side session list.  Tokens
     # minted before this claim existed carry no tag and keep working.
     fingerprint = claims.get("pwd")
     stored = merchant.get("password_hash") or ""
-    if fingerprint and fingerprint != password_fingerprint(stored):
+    if not fingerprint or fingerprint != password_fingerprint(stored):
         raise HTTPException(
             401, "密码已修改，请用新密码重新登录", headers={"WWW-Authenticate": "Bearer"}
         )
     if merchant.get("disabled"):
-        raise HTTPException(403, "该商家账号已被禁用")
+        raise HTTPException(403, "该账号已被禁用")
+    request.state.auth_claims = claims
     return merchant
+
+
+def current_merchant(user: Annotated[dict, Depends(current_user)]) -> dict:
+    """All merchant business endpoints require an authoritative merchant role."""
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "需要商家身份才能访问")
+    return user

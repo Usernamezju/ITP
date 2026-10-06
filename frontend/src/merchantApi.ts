@@ -1,32 +1,10 @@
 /** Merchant console client: accounts, garment import and look composition. */
 
 import { api } from './api';
+import { sessionToken } from './session';
 
-const TOKEN_KEY = 'itp.merchant.token';
-
-/**
- * The login token lives in localStorage so a reload keeps the console open.
- * This is a loopback-only single-user tool: the token grants nothing beyond
- * what the machine's own user can already do, and it is never sent anywhere
- * except this local backend.
- */
-export const merchantToken = {
-  read(): string {
-    try {
-      return localStorage.getItem(TOKEN_KEY) || '';
-    } catch {
-      return '';
-    }
-  },
-  write(token: string): void {
-    try {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
-      else localStorage.removeItem(TOKEN_KEY);
-    } catch {
-      /* storage unavailable: the session simply will not survive a reload */
-    }
-  },
-};
+// Backward-compatible name; there is only one credential store and JWT scheme.
+export const merchantToken = sessionToken;
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = merchantToken.read();

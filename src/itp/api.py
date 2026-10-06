@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from itp.accounts import AccountProfileUpdate, AccountRegisterRequest, AuthLimiter, public_account
 
 from itp.config import BFL_PROVIDERS, KLEIN_PROVIDERS, Settings
 from itp.face_refine import (
@@ -42,7 +45,9 @@ from itp.garments import (
 )
 from itp.merchant_auth import (
     DUMMY_PASSWORD_HASH,
+    bearer_token,
     current_merchant,
+    current_user,
     encode_token,
     hash_password,
     resolve_jwt_secret,
@@ -130,16 +135,22 @@ def merchant_register_fields(body: MerchantRegisterRequest) -> dict[str, str]:
     name = body.name.strip()
     if not MERCHANT_NAME.match(name):
         raise HTTPException(422, "商家账号需为 3-32 位字母、数字、下划线或短横线")
-    display_name = body.display_name.strip()
+    fields = account_profile_fields(body.display_name, body.contact)
+    check_password(body.password)
+    return {"name": name, **fields}
+
+
+def account_profile_fields(display_name: str, contact: str) -> dict[str, str]:
+    """One profile validator for legacy merchant and unified account clients."""
+    display_name = display_name.strip()
     if not 1 <= len(display_name) <= 40:
         raise HTTPException(422, "商家名称需为 1-40 个字符")
-    contact = body.contact.strip()
+    contact = contact.strip()
     if len(contact) > 80:
         raise HTTPException(422, "联系方式不能超过 80 个字符")
     if any(ord(char) < 32 or ord(char) == 127 for char in f"{display_name}{contact}"):
         raise HTTPException(422, "商家名称或联系方式含有不可见控制字符")
-    check_password(body.password)
-    return {"name": name, "display_name": display_name, "contact": contact}
+    return {"display_name": display_name, "contact": contact}
 
 
 def parse_metrics_payload(raw: str) -> dict:
@@ -284,6 +295,7 @@ def create_app(
     merchants = MerchantStore(store.root)
     settings_lock = threading.Lock()
     face_lock = threading.Lock()
+    auth_limiter = AuthLimiter()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -356,6 +368,13 @@ def create_app(
     async def redact_settings_validation(request: Request, exc: RequestValidationError):
         if request.url.path == "/api/settings":
             return JSONResponse({"detail": "配置项无效，请检查输入内容"}, status_code=422)
+        if request.url.path.startswith(("/api/auth/", "/api/account/")) or request.url.path in {
+            "/api/merchant/register", "/api/merchant/login", "/api/merchant/password"
+        }:
+            # Pydantic's default errors include input values, including passwords.
+            errors = [{key: item[key] for key in ("loc", "msg", "type")}
+                      for item in exc.errors()]
+            return JSONResponse({"detail": errors}, status_code=422)
         return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
@@ -396,7 +415,7 @@ def create_app(
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if request.url.path == "/api/settings":
+        if request.url.path == "/api/settings" or request.url.path.startswith(("/api/auth/", "/api/account/", "/api/merchant/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -753,31 +772,37 @@ def create_app(
         return public_look(look, members, gallery)
 
     @app.post("/api/merchant/register", status_code=201)
-    def merchant_register(body: MerchantRegisterRequest):
-        fields = merchant_register_fields(body)
-        try:
-            merchant = merchants.create_merchant(
-                **fields,
-                password_hash=hash_password(body.password),
-                quota=app.state.settings.merchant_quota,
-            )
-        except AlreadyExists as exc:
-            raise HTTPException(409, str(exc)) from exc
+    def merchant_register(body: MerchantRegisterRequest, request: Request):
+        account = account_register(AccountRegisterRequest(**body.model_dump(), role="merchant"), request)
         return {
-            "merchant_id": merchant["id"],
-            "name": merchant["name"],
-            "display_name": merchant["display_name"],
+            "merchant_id": account["id"],
+            "name": account["name"],
+            "display_name": account["display_name"],
         }
 
     @app.post("/api/merchant/login")
-    def merchant_login(body: MerchantLoginRequest):
+    def merchant_login(body: MerchantLoginRequest, request: Request):
+        return login_account(body, request, merchant_only=True)
+
+    def login_account(body: MerchantLoginRequest, request: Request, *, merchant_only=False):
+        if len(body.name) > 128 or len(body.password) > 128:
+            verify_password(body.password[:128], DUMMY_PASSWORD_HASH)
+            raise HTTPException(401, "账号或密码不正确")
+        # Nginx appends the actual client IP last; do not trust the first value,
+        # which might have been supplied by a visitor.
+        peer = request.client.host if request.client else "unknown"
+        if peer in {"127.0.0.1", "::1"}:
+            peer = request.headers.get("x-forwarded-for", peer).split(",")[-1].strip()
+        auth_limiter.check(("login", peer, body.name.strip()), attempts=8, seconds=300)
         merchant = merchants.merchant_by_name(body.name.strip())
         stored = merchant["password_hash"] if merchant else DUMMY_PASSWORD_HASH
         accepted = verify_password(body.password, stored)
         if not merchant or not accepted:
             raise HTTPException(401, "账号或密码不正确")
         if merchant["disabled"]:
-            raise HTTPException(403, "该商家账号已被禁用")
+            raise HTTPException(403, "该账号已被禁用")
+        if merchant_only and merchant["role"] != "merchant":
+            raise HTTPException(403, "需要商家身份才能访问")
         token, expires_in = encode_token(
             resolve_jwt_secret(app),
             merchant["id"],
@@ -809,6 +834,50 @@ def create_app(
             raise HTTPException(422, "新密码不能与当前密码相同")
         merchants.set_password(merchant["id"], hash_password(body.new_password))
         return {"changed": True, "tokens_revoked": True}
+
+    @app.post("/api/auth/register", status_code=201)
+    def account_register(body: AccountRegisterRequest, request: Request):
+        fields = merchant_register_fields(MerchantRegisterRequest(
+            **body.model_dump(exclude={"role"})))
+        peer = request.client.host if request.client else "unknown"
+        if peer in {"127.0.0.1", "::1"}:
+            peer = request.headers.get("x-forwarded-for", peer).split(",")[-1].strip()
+        auth_limiter.check(("register", peer), attempts=10, seconds=3600)
+        try:
+            user = merchants.create_merchant(**fields, password_hash=hash_password(body.password),
+                role=body.role, quota=app.state.settings.merchant_quota if body.role == "merchant" else 0)
+        except AlreadyExists as exc:
+            raise HTTPException(409, "账号名称已被占用") from exc
+        return public_account(user)
+
+    @app.post("/api/auth/login")
+    def account_login(body: MerchantLoginRequest, request: Request):
+        return login_account(body, request)
+
+    @app.post("/api/auth/logout")
+    def account_logout(request: Request, user: dict = Depends(current_user)):
+        token = bearer_token(request)
+        claims = request.state.auth_claims
+        merchants.revoke_token(hashlib.sha256(token.encode()).hexdigest(), user["id"], claims["exp"])
+        return {"logged_out": True}
+
+    @app.get("/api/account/me")
+    def account_me(user: dict = Depends(current_user)):
+        return public_account(user)
+
+    @app.patch("/api/account/me")
+    def account_update(body: AccountProfileUpdate, user: dict = Depends(current_user)):
+        changes = body.model_dump(exclude_unset=True)
+        if any(value is None for value in changes.values()):
+            raise HTTPException(422, "个人资料不能为 null")
+        fields = account_profile_fields(changes.get("display_name", user["display_name"]),
+                                        changes.get("contact", user["contact"]))
+        return public_account(merchants.update_account_profile(user["id"],
+            display_name=fields["display_name"], contact=fields["contact"]))
+
+    @app.post("/api/account/password")
+    def account_password(body: MerchantPasswordRequest, user: dict = Depends(current_user)):
+        return merchant_change_password(body, user)
 
     @app.post("/api/merchant/garments", status_code=201)
     async def merchant_create_garment(

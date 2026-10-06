@@ -105,6 +105,10 @@ async function openConsole(page: Page, state: {
         model: '3.1', pose_model: '' } });
     } else if (pathname === '/api/jobs') {
       await route.fulfill({ json: [] });
+    } else if (pathname === '/api/account/me') {
+      await route.fulfill({ json: { id: profile.merchant_id, ...profile, role: 'merchant' } });
+    } else if (pathname === '/api/auth/logout') {
+      await route.fulfill({ json: { logged_out: true } });
     } else if (pathname === '/api/garment-options') {
       await route.fulfill({ json: options });
     } else if (pathname === '/api/merchant/me') {

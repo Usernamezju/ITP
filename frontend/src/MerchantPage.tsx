@@ -4,6 +4,8 @@ import {
   Store, Trash2, Upload,
 } from 'lucide-react';
 import { ApiError } from './api';
+import { logoutAccount } from './accountApi';
+import { SESSION_EVENT } from './session';
 import {
   GarmentMetrics, GarmentOptions, LookDraft, MerchantGarment, MerchantLook,
   MerchantProfile, addGarmentImages, changePassword, createGarment, createLook,
@@ -255,8 +257,7 @@ function AuthPanel({ onSignedIn, onError }: {
           : mode === 'register' ? '注册并登录' : '登录'}
       </button>
       <p className="merchant-auth-note">
-        账号只保护你自己的商品数据：本机部署下页面本身不对公网开放，
-        但部署到服务器时请先为后台加上访问控制。
+        使用统一用户账号登录；只有商家身份可以管理自己的商品与套装。
       </p>
     </form>
   </div>;
@@ -690,9 +691,7 @@ function AccountPanel({ profile, onChanged, onCancel, onError }: {
           {busy ? <><LoaderCircle size={15} className="spin" /> 提交中…</> : '修改密码'}</button>
       </div>
       <p className="merchant-hint">
-        如果连当前密码也忘了：在本机运行
-        <code> scripts/reset_merchant_password.py --name {profile.name} </code>
-        直接重置（需要能访问数据目录）。
+        忘记当前密码时，请联系平台维护人员核验身份后重置。
       </p>
     </section>
   </form>;
@@ -739,6 +738,22 @@ export function MerchantPage() {
       .finally(() => setChecking(false));
   }, [logout, reload]);
 
+  useEffect(() => {
+    const sync = () => {
+      if (!merchantToken.read()) {
+        setProfile(null); setGarments([]); setLooks([]); setView('goods');
+      } else {
+        void reload().catch(() => { setProfile(null); setGarments([]); setLooks([]); });
+      }
+    };
+    window.addEventListener(SESSION_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(SESSION_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, [reload]);
+
   const guard = useCallback(async (run: () => Promise<void>) => {
     try {
       await run();
@@ -781,7 +796,9 @@ export function MerchantPage() {
       </div>
       <button className="text-button" type="button" onClick={() => setView('account')}>
         <KeyRound size={14} /> 账号设置</button>
-      <button className="text-button" type="button" onClick={() => logout('已退出登录')}>
+      <button className="text-button" type="button" onClick={() => {
+        void logoutAccount().then(() => logout('已退出登录')).catch((error: Error) => setNotice(error.message));
+      }}>
         <LogOut size={14} /> 退出登录</button>
     </div>
 

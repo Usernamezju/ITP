@@ -4,6 +4,8 @@ import { ArrowDownToLine, ArrowRight, Box, Check, ChevronRight, CircleHelp,
   SlidersHorizontal, Sparkles, Store, Unplug, Upload, X } from 'lucide-react';
 import { api, post, fileUrl, type Asset, type Capabilities, type Job, type PoseMode } from './api';
 import { AppearancePage } from './AppearancePage';
+import { AccountAvatar, AccountPage } from './AccountPage';
+import { logoutAccount, useAccountSession } from './accountApi';
 import { explainJobError } from './errors';
 import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type ContrastTheme } from './theme';
 import { Viewer } from './Viewer';
@@ -86,7 +88,8 @@ export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'appearance'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'appearance' | 'account'>('workspace');
+  const account = useAccountSession();
   const [error, setError] = useState('');
   const [colorTheme, setColorTheme] = useState<ColorTheme>(loadColorTheme);
   const [contrastTheme, setContrastTheme] = useState<ContrastTheme>(loadContrastTheme);
@@ -209,14 +212,21 @@ export default function App() {
     <div className="workspace-shell">
       <header className="topbar"><div className="wordmark">ITP <span>STUDIO</span><i /> <span className="breadcrumb">创作空间</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 本地工作台</span>
-          <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button></div></header>
-      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'outfits' ? '穿搭推荐' : tab === 'merchant' ? '商家后台' : tab === 'history' ? '你的创作记录' : '外观设置'}</h1></div></div>
+          <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button>
+          <AccountAvatar user={account.user} checking={account.checking} onAccount={() => setTab('account')}
+            onLogout={() => { void logoutAccount().catch((err) => setError((err as Error).message)); }} />
+        </div></header>
+      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'outfits' ? '穿搭推荐' : tab === 'merchant' ? '商家后台' : tab === 'history' ? '你的创作记录' : tab === 'account' ? '账号设置' : '外观设置'}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       {tab === 'appearance' ? <AppearancePage colorTheme={colorTheme} contrastTheme={contrastTheme}
-        onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'tryon' ?
+        onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'account' ?
+        <AccountPage key={account.user?.id || 'anonymous'} user={account.user} onChanged={account.refresh} /> : tab === 'tryon' ?
         <TryOnPage caps={caps} onContinue={(created) => { setJobs((list) => [created, ...list]); chooseJob(created); }} /> : tab === 'outfits' ?
         <OutfitsPage caps={caps} jobs={jobs} onModeling={() => setTab('workspace')} /> : tab === 'merchant' ?
-        <MerchantPage /> : tab === 'history' ? <section className="history-page">
+        account.user?.role === 'customer' ? <section className="account-page"><div className="account-card">
+          <h2>商家后台仅限商家账号访问</h2><p>当前账号为普通顾客，可通过右上角管理账号。</p>
+          <button className="button" onClick={() => setTab('account')}>查看账号</button></div></section>
+        : <MerchantPage /> : tab === 'history' ? <section className="history-page">
         <div className="section-heading"><h2>任务记录 <span>{jobs.length}</span></h2><small>{active} 个待处理任务</small></div>
         {!jobs.length ? <div className="history-empty"><FolderOpen size={42} strokeWidth={1} /><h3>第一件作品，从这里开始</h3><p>你的生成任务与中间产物会保存在本地。</p><button className="button" onClick={() => setTab('workspace')}>前往工作台 <ArrowRight size={16} /></button></div> :
           <div className="history-grid">{jobs.map((item) => <button className="history-card" key={item.id} onClick={() => chooseJob(item)}>

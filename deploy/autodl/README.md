@@ -41,6 +41,14 @@ merchant tokens are rejected by FastAPI. The proxy allows up to 81 MiB on these
 paths for eight 10 MiB images plus multipart overhead; the application still
 enforces per-image, total-body and route-specific limits.
 
+Unified `/api/auth/register`, `/login`, `/logout` and `/api/account/me`, `/password`
+also bypass Basic Authentication to avoid the same header conflict. Registration
+and login are rate-limited by the application; account routes validate JWTs and
+merchant business routes additionally validate the database role. The new account
+module adds a role column and token-revocation table to the existing credential
+database without copying users or changing garment ownership. The main shared
+workspace remains Basic-protected during the asset-isolation upgrade.
+
 The merchant module creates `merchants.sqlite3` and its tables on application
 startup; it does not replace the existing assets or job databases. Back up live
 SQLite databases with the SQLite backup API before upgrading. `ITP_JWT_SECRET`

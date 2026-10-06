@@ -6,6 +6,11 @@
 | --- | --- | --- |
 | GET | /api/health | 服务健康/version |
 | GET | /api/capabilities | 配置是否齐全、分割权重是否存在；从不包含密钥 |
+| POST | /api/auth/register | 统一顾客/商家注册，默认 customer |
+| POST | /api/auth/login | 同一 scrypt/JWT 实现签发会话 |
+| POST | /api/auth/logout | Bearer；服务端吊销当前令牌 |
+| GET / PATCH | /api/account/me | Bearer；查看/修改个人资料，角色不可自行更改 |
+| POST | /api/account/password | Bearer；验证当前密码并吊销全部旧密码会话 |
 | POST | /api/assets?remove_background=false | multipart `file` 上传；返回 id/url/width/height/size |
 | GET | /api/assets/{id} | 资产元数据 |
 | GET | /api/assets/{id}/file | 预览文件；`?download=true` 返回附件 |
