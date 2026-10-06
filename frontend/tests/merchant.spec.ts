@@ -164,7 +164,7 @@ async function openConsole(page: Page, state: {
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: '商家后台' }).click();
+  await page.getByRole('link', { name: '商家后台' }).click();
   return calls;
 }
 

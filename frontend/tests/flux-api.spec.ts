@@ -54,7 +54,7 @@ for (const [provider, model, label] of [
       await page.goto('/');
       const image = await imageFromCanvas(page);
       await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
-      await page.getByRole('button', { name: '虚拟试穿', exact: true }).click();
+      await page.getByRole('link', { name: '虚拟试穿', exact: true }).click();
       const picker = page.locator('select:visible').first();
       await expect(picker.locator('option', { hasText: 'FLUX.2 Pro' })).toHaveCount(1);
       await expect(picker.locator('option', { hasText: 'FLUX.2 Max' })).toHaveCount(1);

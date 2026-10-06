@@ -4,7 +4,7 @@ import { SESSION_EVENT, sessionToken } from './session';
 
 export type Account = {
   id: string; name: string; display_name: string; contact: string;
-  role: 'customer' | 'merchant'; created: number;
+  role: 'customer' | 'merchant' | 'admin'; created: number;
 };
 
 export function accountApi<T>(path: string, method = 'GET', body?: unknown): Promise<T> {

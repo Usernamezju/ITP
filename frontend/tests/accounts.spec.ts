@@ -13,9 +13,7 @@ async function openAccount(page: Page, signedIn = false) {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
     if (path.startsWith('/api/') && method !== 'GET') writes.push({ path, body: route.request().postDataJSON() });
-    if (path === '/') {
-      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
-    } else if (path.startsWith('/assets/')) {
+    if (path.startsWith('/assets/')) {
       const name = path.slice('/assets/'.length);
       if (!/^[\w.-]+$/.test(name)) { await route.fulfill({ status: 404 }); return; }
       await route.fulfill({ body: await readFile(`${dist}/assets/${name}`),
@@ -50,8 +48,11 @@ async function openAccount(page: Page, signedIn = false) {
           period_months: 12, purchasable: true, entitlements: {} }] } });
     } else if (path === '/api/account/password') {
       await route.fulfill({ json: { changed: true, tokens_revoked: true } });
-    } else {
+    } else if (path.startsWith('/api/')) {
       await route.fulfill({ status: 404 });
+    } else {
+      // Every page URL gets the app itself, exactly like the real server.
+      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     }
   });
   await page.goto('/');
@@ -98,7 +99,7 @@ test('profile and logout use verified user endpoints and clear the shared sessio
 test('customer cannot open the merchant console', async ({ page }) => {
   await openAccount(page, true);
   await expect(page.getByRole('button', { name: '打开账号菜单' })).toBeEnabled();
-  await page.getByRole('button', { name: '商家后台', exact: true }).click();
+  await page.getByRole('link', { name: '商家后台', exact: true }).click();
   await expect(page.getByRole('heading', { name: '商家后台仅限商家账号访问' })).toBeVisible();
   await expect(page.getByRole('button', { name: '新建商品' })).toHaveCount(0);
 });

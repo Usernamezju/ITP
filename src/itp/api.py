@@ -14,7 +14,6 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -312,6 +311,7 @@ def create_app(
     *,
     start_worker: bool = True,
     config_path: Path = Path(".env"),
+    frontend_dir: Path | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     store = TransientStore(settings.data_dir)
@@ -1455,16 +1455,29 @@ def create_app(
             headers={"Cache-Control": "public, max-age=604800"},
         )
 
-    frontend = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-    if frontend.is_dir():
-        app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
-    else:
+    frontend = frontend_dir or Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    root = frontend.resolve()
 
-        @app.get("/")
-        def index():
+    @app.get("/{path:path}", include_in_schema=False)
+    def single_page_app(path: str):
+        # Customer, merchant and admin addresses are real URLs: /, /tryon,
+        # /outfits, /history, /account, /appearance, /merchant, /admin.
+        # Built files win when they exist; every other path returns the app
+        # itself so a deep link or a refresh lands on the right page.  The
+        # API never falls back to HTML, and no request escapes the dist root.
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(404, "接口不存在")
+        candidate = (root / path).resolve()
+        if path and candidate.is_file() and candidate.is_relative_to(root):
+            return FileResponse(candidate)
+        index = root / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        if path in {"", "index.html"}:
             return {
                 "message": "ITP API ready. Build frontend to serve the workspace.",
                 "docs": "/docs",
             }
+        raise HTTPException(404, "前端尚未构建")
 
     return app

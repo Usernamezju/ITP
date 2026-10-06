@@ -56,7 +56,7 @@ test('Klein selection uses independent health and submits the 9B provider', asyn
     }
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '虚拟试穿', exact: true }).click();
+  await page.getByRole('link', { name: '虚拟试穿', exact: true }).click();
   const image = await imageFromCanvas(page);
   const upload = page.getByLabel('上传正面');
   await upload.first().setInputFiles({ name: 'person.png', mimeType: 'image/png', buffer: image });
@@ -86,7 +86,7 @@ test('9B unavailable service never asks the customer for an endpoint or token', 
   await page.route('**/api/tryon-providers/flux-klein-9b/health', (route) =>
     route.fulfill({ json: { ready: false, model: 'flux.2-klein-9b' } }));
   await page.goto('/');
-  await page.getByRole('button', { name: '虚拟试穿', exact: true }).click();
+  await page.getByRole('link', { name: '虚拟试穿', exact: true }).click();
   await page.locator('select:visible').first().selectOption('flux_klein_9b');
   await expect(page.getByRole('button', { name: '生成六视图试穿' })).toBeDisabled();
   await expect(page.getByText('当前生图服务暂不可用，请选择其他可用模型或稍后再试')).toBeVisible();

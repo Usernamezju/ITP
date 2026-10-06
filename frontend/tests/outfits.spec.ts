@@ -134,7 +134,7 @@ async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], imag
     await route.fulfill({ body: pixel, contentType: 'image/png' });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '穿搭推荐' }).click();
+  await page.getByRole('link', { name: '穿搭推荐' }).click();
   return requests;
 }
 
@@ -271,9 +271,9 @@ test('the browser offers its own model and filters to the recommend endpoint', a
   const requests = await openOutfits(page, analysisPayload(true), [job]);
   // The task is mirrored into this browser first: that copy is what the
   // recommendation page later uploads, one run at a time.
-  await page.getByRole('button', { name: '任务记录' }).click();
+  await page.getByRole('link', { name: '任务记录' }).click();
   await expect(page.getByRole('button', { name: /比例测试/ })).toBeVisible();
-  await page.getByRole('button', { name: '穿搭推荐' }).click();
+  await page.getByRole('link', { name: '穿搭推荐' }).click();
   await expect.poll(() => requests.some((body) => body.includes(`"asset_id":"${'d'.repeat(32)}"`)))
     .toBe(true);
   const scored = requests.find((body) => body.includes('asset_id'))!;

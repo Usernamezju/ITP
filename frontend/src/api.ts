@@ -97,7 +97,7 @@ export class ApiError extends Error {
 
 /** Routes that need the signed-in account; everything else answers without it. */
 const AUTH_ROUTES = new RegExp('^/api/(' + [
-  'auth/', 'account/', 'merchant/', 'jobs(?:/|$)', 'tryons(?:/|$)',
+  'auth/', 'account/', 'merchant/', 'admin(?:/|$)', 'jobs(?:/|$)', 'tryons(?:/|$)',
   'assets(?:/|$)', 'face-photos', 'model-assets', 'face-refinements', 'outfits/recommend',
 ].join('|') + ')');
 

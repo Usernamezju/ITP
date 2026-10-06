@@ -30,15 +30,16 @@ async function openStudio(page: Page, jobs: unknown[] = []) {
         size: 100, format: 'GLB' } });
     } else if (/^\/api\/jobs\/[a-f0-9]{32}\/acknowledge$/.test(pathname)) {
       await route.fulfill({ status: 204, body: '' });
-    } else if (pathname === '/') {
-      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     } else if (pathname.startsWith('/assets/')) {
       const name = pathname.slice('/assets/'.length);
       if (!/^[\w.-]+$/.test(name)) { await route.fulfill({ status: 404 }); return; }
       await route.fulfill({ body: await readFile(`${dist}/assets/${name}`),
         contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript' });
-    } else {
+    } else if (pathname.startsWith('/api/')) {
       await route.fulfill({ status: 404 });
+    } else {
+      // Every page URL gets the app itself, exactly like the real server.
+      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     }
   });
   await page.goto('/');
@@ -65,18 +66,18 @@ test('generate checklist and uploaded image preview', async ({ page }) => {
 
 test('color and contrast themes persist after reload', async ({ page }) => {
   await openStudio(page);
-  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '外观', exact: true }).click();
   await page.getByRole('radio', { name: /科技风/ }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'tech');
   await page.reload();
-  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '外观', exact: true }).click();
   await expect(page.getByRole('radio', { name: /科技风/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('radio', { name: /少女粉/ }).click();
   await page.getByRole('radio', { name: '高对比度' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'pink');
   await expect(page.locator('html')).toHaveAttribute('data-contrast', 'high');
   await page.reload();
-  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '外观', exact: true }).click();
   await expect(page.getByRole('radio', { name: /少女粉/ })).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByRole('radio', { name: '高对比度' })).toHaveAttribute('aria-checked', 'true');
 });
@@ -89,7 +90,7 @@ test('old provider error displays a useful explanation', async ({ page }) => {
       texture: false, rig: false, export_fbx: false }, pose_asset: null,
     steps: [{ name: 'geometry', status: 'failed' }], artifacts: [],
   }]);
-  await page.getByRole('button', { name: '任务记录' }).click();
+  await page.getByRole('link', { name: '任务记录' }).click();
   await page.getByRole('button', { name: /失败任务/ }).click();
   await expect(page.getByText(/服务未开通或计费状态异常/)).toBeVisible();
 });
@@ -105,7 +106,7 @@ test('a failed rig step keeps generated models visible as partial success', asyn
     artifacts: [{ asset_id: 'd'.repeat(32), stage: 'geometry', format: 'GLB', index: 0 },
       { asset_id: 'e'.repeat(32), stage: 'texture', format: 'GLB', index: 0 }],
   }]);
-  await page.getByRole('button', { name: '任务记录' }).click();
+  await page.getByRole('link', { name: '任务记录' }).click();
   await expect(page.getByRole('button', { name: /已生成角色/ }).getByText('部分完成')).toBeVisible();
   await page.getByRole('button', { name: /已生成角色/ }).click();
   await expect(page.getByLabel('资产生成参数')).toContainText('1,500,000');
@@ -127,7 +128,7 @@ test('asset page shows saved generation model and processing options', async ({ 
     models: { geometry: '3.1', pose: 'qwen-image-edit-plus-2025-12-15' },
     pose_asset: null, steps: [], artifacts: [],
   }]);
-  await page.getByRole('button', { name: '任务记录' }).click();
+  await page.getByRole('link', { name: '任务记录' }).click();
   await page.getByRole('button', { name: /新资产/ }).click();
   const details = page.getByLabel('资产生成参数');
   await expect(details).toContainText('500,000');
