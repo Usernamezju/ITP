@@ -129,13 +129,13 @@ export function Viewer({ url, label }: { url: string | null; label: string }) {
     <div className="viewport-canvas" ref={mount} />
     <div className="viewport-top"><span><Box size={14} /> {label}</span><span>透视视图</span></div>
     {!url && !error && <div className="viewport-empty">
-      <span className="eyebrow">YOUR NEXT DIMENSION</span>
+      <span className="eyebrow">三维工作台</span>
       <h2>让灵感，拥有形状。</h2>
       <p>上传角色与姿势参考，开始构建你的三维资产。</p>
       <span className="guide-note">空场景 · 等待模型</span>
     </div>}
     {(error || loading) && <div className="viewer-notice" role="status">{error || '正在载入模型…'}</div>}
-    <div className="viewport-bottom"><span><Grid2X2 size={13} /> {stats || '3D WORKSPACE'}</span>
+    <div className="viewport-bottom"><span><Grid2X2 size={13} /> {stats || '3D 工作台'}</span>
       <span>拖拽旋转 · 滚轮缩放 · 右键平移</span></div>
     <div className="viewer-tools">
       <button title="重置视角" aria-label="重置视角" onClick={() => reset.current()}><RotateCcw size={17} /></button>

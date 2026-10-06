@@ -3,9 +3,20 @@
 .account-card{display:flex;flex-direction:column;gap:17px;max-width:440px;padding:26px;background:var(--theme-surface);border:1px solid var(--theme-border);border-radius:12px;margin:auto;width:100%}
 .account-card h2{display:flex;align-items:center;gap:8px;font-size:17px}
 .account-card label{display:flex;flex-direction:column;gap:7px;font-size:12px}.account-card .text-input{width:100%;margin:0}
-.account-card small{color:var(--theme-muted);font-size:11px;line-height:1.7}.account-tabs{display:flex;gap:10px}.account-tabs button{padding:7px 16px;border-radius:6px}.account-tabs .active{background:var(--theme-soft);color:var(--theme-primary)}
+.account-card small{color:var(--theme-muted);font-size:12px;line-height:1.7}.account-tabs{display:flex;gap:10px}.account-tabs button{padding:7px 16px;border-radius:6px}.account-tabs .active{background:var(--theme-soft);color:var(--theme-primary)}
 .account-avatar{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--theme-soft);border:1px solid var(--theme-border);color:var(--theme-primary);font-size:14px;flex-shrink:0}
 .account-identity{display:flex;align-items:center;gap:12px}.account-identity strong,.account-identity small{display:block}
 .account-error,.account-notice{padding:12px 16px;margin-bottom:18px;border-radius:7px;font-size:12px;background:var(--theme-soft)}.account-error{color:#a33d30}.account-notice{color:var(--theme-primary)}
 .account-menu{position:relative}.account-menu-panel{position:absolute;top:45px;right:0;min-width:180px;display:flex;flex-direction:column;gap:5px;background:var(--theme-surface);border:1px solid var(--theme-border);border-radius:9px;padding:12px;z-index:50;box-shadow:0 6px 28px #0002}.account-menu-panel strong{padding:7px;font-size:12px}.account-menu-panel button{text-align:left;padding:9px;border-radius:5px;font-size:12px}.account-menu-panel button:hover{background:var(--theme-soft)}
 @media(max-width:760px){.account-page{padding:0 16px 24px}.account-columns{grid-template-columns:1fr}.account-card{padding:20px}.account-avatar{width:32px;height:32px}}
+
+.account-card { align-self: start; margin-top:0; font-size:14px; line-height:1.6; }
+.account-card label { font-size:14px; }
+.account-card small { font-size:12px; }
+.account-tabs button { min-height:40px; font-size:14px; }
+.account-error { background:#fff4f2; border:1px solid #f5d4ce; color:var(--commerce-danger); }
+.account-notice { color:var(--commerce-primary-text); }
+.account-menu-panel button { min-height:40px; font-size:14px; }
+.account-menu-panel strong { font-size:14px; }
+.account-columns { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+@media(max-width:760px) { .account-columns { grid-template-columns:minmax(0,1fr); } }

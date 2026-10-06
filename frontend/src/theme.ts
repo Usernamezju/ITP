@@ -1,7 +1,8 @@
-export type ColorTheme = 'forest' | 'ocean' | 'sunset' | 'violet' | 'tech' | 'pink';
+export type ColorTheme = 'commerce' | 'forest' | 'ocean' | 'sunset' | 'violet' | 'tech' | 'pink';
 export type ContrastTheme = 'standard' | 'high';
 
 export const colorThemes: { id: ColorTheme; label: string; description: string }[] = [
+  { id: 'commerce', label: '电商橙', description: '简洁明亮 · 默认' },
   { id: 'forest', label: '森林绿', description: '自然沉静' },
   { id: 'ocean', label: '海洋蓝', description: '清爽专注' },
   { id: 'sunset', label: '暖日橙', description: '温暖明亮' },
@@ -15,7 +16,7 @@ export function loadColorTheme(): ColorTheme {
     const value = localStorage.getItem('itp-color-theme');
     if (colorThemes.some((item) => item.id === value)) return value as ColorTheme;
   } catch { /* Storage may be unavailable in a private browser session. */ }
-  return 'forest';
+  return 'commerce';
 }
 
 export function loadContrastTheme(): ContrastTheme {
