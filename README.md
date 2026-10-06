@@ -7,8 +7,9 @@
 统一顾客/商家账号已复用原商家认证：右上角头像支持注册登录、账号菜单、
 个人资料、改密与退出，商家后台由服务端角色校验保护。旧商家账号与商品
 保留，见 [账号模块](docs/modules/ACCOUNTS.md)。钱包与周期权益已实现，见
-[资金模块](docs/modules/COMMERCE.md)。支付履约及顾客资产
-本地化仍在商业化升级中，状态见 [实施计划](docs/PLAN.md)，当前不是完整多租户商业发布版。
+[资金模块](docs/modules/COMMERCE.md)。[支付订单](docs/modules/PAYMENTS.md)
+已支持支付宝/微信官方验签协议及本地测试，真实商户交易尚未验收。
+顾客资产本地化仍在商业化升级中，状态见 [实施计划](docs/PLAN.md)，当前不是完整多租户商业发布版。
 
 本地图片上传、可选 CPU 去背景、多视角输入、姿势设置、持久任务流程、GLB 预览与历史列表。云端适配器覆盖千问姿势编辑、混元几何、智能拓扑、PBR 纹理、自动绑骨与 FBX 转换，且等待真实服务配置和样例验收。穿搭推荐解析图生 3D 产出的 GLB，估算肩宽、腰线、胯宽与腿身比，再从本地精选目录按比例给出成套穿搭；尚未生成模型时按通用体型推荐。每套穿搭会从图片检索服务取真实穿搭图片并缓存在本机，默认使用免 key 的 360 图片，运维可通过服务端环境变量切换到 Unsplash 或 Pixabay，取不到图片时回落到配色示意。
 
@@ -56,6 +57,8 @@ npm run build --prefix frontend
 - [指标与匹配规范](docs/modules/METRICS.md)
 - [商家接口](docs/modules/MERCHANT.md)
 - [统一用户账号](docs/modules/ACCOUNTS.md)
+- [钱包、会员与周期额度](docs/modules/COMMERCE.md)
+- [统一支付订单](docs/modules/PAYMENTS.md)
 - [FaceVerse 远程脸部精修](docs/modules/FACE_REFINEMENT.md)
 - [模型与处理模块](docs/modules/GEOMETRY.md)
 - [开发规范](CONTRIBUTING.md)

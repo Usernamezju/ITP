@@ -19,7 +19,7 @@ def test_only_jwt_guarded_merchant_routes_bypass_basic_auth():
     config = (Path(__file__).parents[1] / "deploy/autodl/nginx-itp.conf").read_text()
     guard = r"^/api/merchant/(me|password|garments|looks)(/|$)"
     route = config.split(f"location ~ {guard} {{", 1)[1].split("\n    }", 1)[0]
-    assert config.count("auth_basic off;") == 4
+    assert config.count("auth_basic off;") == 5
     assert "auth_basic off;" in route
     assert "client_max_body_size 81m;" in route
     assert "proxy_pass http://127.0.0.1:8000;" in route

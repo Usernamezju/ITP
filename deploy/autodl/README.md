@@ -62,6 +62,22 @@ public site. Full customer account isolation, financial controls and personal
 asset storage boundaries are separate commercial-upgrade modules; do not
 interpret removal of the settings page as completion of those modules.
 
+## Payment upgrade
+
+Install the updated locked Python dependencies before restarting `itp-api`:
+the payment module uses `cryptography` and `qrcode`. No additional daemon or
+database migration command is needed; tables are added on API startup.
+Preserve the live environment and back up `merchants.sqlite3` with SQLite's
+online backup API. Operator-only payment settings are listed in `.env.example`
+and `docs/modules/PAYMENTS.md`. Missing real merchant credentials disable payment;
+production must never enable mock payments. Do not test against live payment APIs.
+
+Public `/api/payments/methods` and `/api/payments/callbacks/{provider}` bypass
+Basic authentication; callbacks are strictly verified by the application.
+JWT-protected account order routes also bypass Basic to avoid header conflicts.
+Only the API needs restarting; Nginx needs a validated hot reload. Model workers
+do not change. Customer storage isolation remains a separate unfinished upgrade.
+
 ## Model services
 
 `supervisord.conf` also starts the two local model services, last, so the site

@@ -40,6 +40,10 @@ async function openAccount(page: Page, signedIn = false) {
       await route.fulfill({ json: { balance_cents: 8765, entitlements: {}, subscriptions: [], upload_usage: null } });
     } else if (path === '/api/account/ledger') {
       await route.fulfill({ json: { items: [] } });
+    } else if (path === '/api/account/orders') {
+      await route.fulfill({ json: { items: [] } });
+    } else if (path === '/api/payments/methods') {
+      await route.fulfill({ json: { methods: [] } });
     } else if (path === '/api/pricing') {
       await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
         { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567,

@@ -216,6 +216,8 @@ class CommerceStore:
         for feature, allowance in entitlements.items():
             if not isinstance(feature, str) or not feature or len(feature) > 80:
                 raise CommerceError("权益名称无效")
+            if feature == "garment_upload" and type(allowance) is not int:
+                raise CommerceError("上传次数必须为整数额度")
             if type(allowance) not in {int, bool} or (
                 type(allowance) is int and not 0 <= allowance <= 100000
             ):

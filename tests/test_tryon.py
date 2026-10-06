@@ -96,7 +96,7 @@ def test_tryon_accepts_partial_views_and_rejects_invalid_views(settings, store, 
     })
     app = create_app(settings, start_worker=False)
     create = next(route.endpoint for route in app.routes
-                  if route.path == "/api/tryons" and "POST" in route.methods)
+                  if getattr(route, "path", None) == "/api/tryons" and "POST" in route.methods)
     payload = {"person": {"front": store.test_image}, "garment": {"back": store.test_image}}
     job = create(TryOnRequest(**payload))
     app.state.tryon_worker.provider.generate = lambda paths, prompt, model: image_bytes
@@ -117,9 +117,9 @@ def test_tryon_model_selection(settings, store):
         "gpt_image_api_key": SecretStr("test-only"),
     })
     app = create_app(settings, start_worker=False)
-    capabilities = next(route.endpoint for route in app.routes if route.path == "/api/capabilities")
+    capabilities = next(route.endpoint for route in app.routes if getattr(route, "path", None) == "/api/capabilities")
     create = next(route.endpoint for route in app.routes
-                  if route.path == "/api/tryons" and "POST" in route.methods)
+                  if getattr(route, "path", None) == "/api/tryons" and "POST" in route.methods)
     assert capabilities()["tryon_providers"] == {
         "seedream": False, "flux": True, "flux_max": False, "flux_klein": False,
         "flux_klein_9b": False, "gpt_image": True,
@@ -306,10 +306,10 @@ def test_flux_klein_job_requires_loaded_remote_model(
     })
     app = create_app(settings, start_worker=False)
     create = next(route.endpoint for route in app.routes
-                  if route.path == "/api/tryons" and "POST" in route.methods)
+                  if getattr(route, "path", None) == "/api/tryons" and "POST" in route.methods)
     health_path = "flux-klein-9b" if variant == "flux_klein_9b" else "flux-klein"
     health = next(route.endpoint for route in app.routes
-                  if route.path == f"/api/tryon-providers/{health_path}/health")
+                  if getattr(route, "path", None) == f"/api/tryon-providers/{health_path}/health")
 
     class HealthClient:
         def __init__(self, **kwargs):

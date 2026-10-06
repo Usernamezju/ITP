@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -55,6 +56,20 @@ class Settings(BaseSettings):
     customer_membership_price_cents: int = Field(default=3000, ge=0, le=10**12)
     model_price_cents: int = Field(default=1500, ge=0, le=10**12)
     commercial_plans: list[dict] = Field(default_factory=list)
+    environment: Literal["production", "development", "test"] = "production"
+    payment_mock_enabled: bool = False
+    payment_mock_secret: SecretStr = SecretStr("")
+    payment_notify_origin: str = ""
+    alipay_app_id: str = ""
+    alipay_seller_id: str = ""
+    alipay_private_key: SecretStr = SecretStr("")
+    alipay_public_key: SecretStr = SecretStr("")
+    wechat_app_id: str = ""
+    wechat_mch_id: str = ""
+    wechat_merchant_serial: str = ""
+    wechat_private_key: SecretStr = SecretStr("")
+    wechat_api_v3_key: SecretStr = SecretStr("")
+    wechat_platform_keys: dict[str, SecretStr] = Field(default_factory=dict)
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
 
@@ -69,6 +84,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_endpoints(self):
+        if self.payment_mock_enabled:
+            if self.environment not in {"development", "test"} or self.public_origin:
+                raise ValueError("Mock payments are forbidden in production or public deployments")
+            if len(self.payment_mock_secret.get_secret_value()) < 32:
+                raise ValueError("Development mock payments require a server-side signing secret")
+        if self.payment_notify_origin:
+            url = urlparse(self.payment_notify_origin)
+            if (url.scheme != "https" or not url.hostname or url.username or url.password
+                    or url.path or url.query or url.fragment
+                    or self.payment_notify_origin != f"{url.scheme}://{url.netloc}"):
+                raise ValueError("Payment callback origin must be a bare HTTPS origin")
         if self.public_origin:
             origin = urlparse(self.public_origin)
             if (

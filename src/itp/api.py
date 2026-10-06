@@ -67,6 +67,8 @@ from itp.outfit_images import (
 )
 from itp.outfit_service import recommend as recommend_outfits
 from itp.pipeline import Pipeline
+from itp.payment_service import PaymentService
+from itp.payment_routes import payment_router
 from itp.preprocessing import MAX_UPLOAD, Segmenter, image_base64, prepare_image
 from itp.provider_settings import (
     ProviderSettingsUpdate,
@@ -345,6 +347,8 @@ def create_app(
     app.state.commerce = merchants.commerce
     app.state.config_path = config_path
     app.state.settings = settings
+    app.state.payments = PaymentService(merchants, settings)
+    app.include_router(payment_router(app.state.payments))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
     def flux_klein_health(provider: str = "flux_klein") -> dict:
