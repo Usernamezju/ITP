@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Check, LoaderCircle, Ruler } from 'lucide-react';
-import { api } from './api';
+import { localValue, saveLocal } from './localData';
 import './BodyMetricsPanel.css';
 
 /**
  * Optional body measurements, collected on the modelling page.  They are what
  * turns the model's proportions into centimetres, so the outfit page can match
  * real garment size ranges instead of guessing from silhouette bands alone.
+ *
+ * They are the customer's own numbers and never leave this browser: the
+ * recommendation page sends them with one request and the server forgets them
+ * with the model it scored them against.
  */
 
 type FieldKey = 'height_cm' | 'weight_kg' | 'shoulder_cm' | 'bust_cm' | 'waist_cm' | 'hip_cm';
-type BodyProfile = Partial<Record<FieldKey, number | null>> & { job_id?: string | null };
+type BodyProfile = Partial<Record<FieldKey, number | null>>;
+
+const PROFILE_KEY = 'body-profile';
 
 const fields: { key: FieldKey; label: string; unit: string; min: number; max: number; step: number }[] = [
   { key: 'height_cm', label: '身高', unit: 'cm', min: 120, max: 220, step: 1 },
@@ -23,29 +29,24 @@ const fields: { key: FieldKey; label: string; unit: string; min: number; max: nu
 
 const emptyDraft = () => Object.fromEntries(fields.map((field) => [field.key, ''])) as Record<FieldKey, string>;
 
-export function BodyMetricsPanel({ jobId, onSaved }: { jobId?: string; onSaved?: () => void }) {
+export function BodyMetricsPanel({ ready, onSaved }: { ready: boolean; onSaved?: () => void }) {
   const [draft, setDraft] = useState<Record<FieldKey, string>>(emptyDraft);
   const [stored, setStored] = useState<Record<FieldKey, string>>(emptyDraft);
   const [status, setStatus] = useState<'idle' | 'loading' | 'saving' | 'saved'>('loading');
   const [error, setError] = useState('');
 
   useEffect(() => {
-    let active = true;
-    setStatus('loading'); setError('');
-    const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : '';
-    void api<BodyProfile>(`/api/body-profile${query}`)
-      .then((profile) => {
-        if (!active) return;
-        const next = emptyDraft();
-        for (const field of fields) {
-          const value = profile[field.key];
-          next[field.key] = typeof value === 'number' ? String(value) : '';
-        }
-        setDraft(next); setStored(next); setStatus('idle');
-      })
-      .catch(() => { if (active) { setStatus('idle'); } });
-    return () => { active = false; };
-  }, [jobId]);
+    // Read back only once this browser's own store has loaded; before that the
+    // empty draft is not the customer's answer.
+    if (!ready) return;
+    const profile = localValue<BodyProfile>(PROFILE_KEY, {});
+    const next = emptyDraft();
+    for (const field of fields) {
+      const value = profile[field.key];
+      next[field.key] = typeof value === 'number' ? String(value) : '';
+    }
+    setDraft(next); setStored(next); setStatus('idle');
+  }, [ready]);
 
   function edit(key: FieldKey, value: string) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -69,19 +70,16 @@ export function BodyMetricsPanel({ jobId, onSaved }: { jobId?: string; onSaved?:
     const problem = invalid();
     if (problem) { setError(problem); return; }
     setStatus('saving'); setError('');
-    const payload: Record<string, number | null | string> = {};
+    const profile: BodyProfile = {};
     for (const field of fields) {
       const raw = draft[field.key].trim();
-      payload[field.key] = raw ? Number(raw) : null;
+      profile[field.key] = raw ? Number(raw) : null;
     }
-    if (jobId) payload.job_id = jobId;
     try {
-      const saved = await api<BodyProfile>('/api/body-profile', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-      });
+      await saveLocal(PROFILE_KEY, profile);
       const next = emptyDraft();
       for (const field of fields) {
-        const value = saved[field.key];
+        const value = profile[field.key];
         next[field.key] = typeof value === 'number' ? String(value) : '';
       }
       setDraft(next); setStored(next); setStatus('saved'); onSaved?.();
@@ -96,7 +94,7 @@ export function BodyMetricsPanel({ jobId, onSaved }: { jobId?: string; onSaved?:
   return <section className="body-metrics" aria-label="人体数据">
     <div className="field-heading">
       <label className="field-label"><Ruler size={12} /> 人体数据</label>
-      <span>选填 · {filled}/6</span>
+      <span>选填 · 仅存本机 · {filled}/6</span>
     </div>
     <div className="body-metrics-grid">
       {fields.map((field) => <label key={field.key} className="body-metrics-field">
@@ -108,14 +106,14 @@ export function BodyMetricsPanel({ jobId, onSaved }: { jobId?: string; onSaved?:
         <i>{field.unit}</i>
       </label>)}
     </div>
-    <p className="hint">填了身高才能把模型比例换算成厘米；没填的项会用模型比例推算，并在推荐页标注「估算」。</p>
+    <p className="hint">填了身高才能把模型比例换算成厘米；没填的项会用模型比例推算，并在推荐页标注「估算」。数据保存在本机浏览器，不会长期存放在服务器。</p>
     <div className="body-metrics-actions">
       <button className="text-button" type="button" onClick={() => void save()}
-        disabled={status === 'saving' || status === 'loading' || !dirty}>
+        disabled={!ready || status === 'saving' || status === 'loading' || !dirty}>
         {status === 'saving' ? <LoaderCircle size={13} className="spin" /> : <Ruler size={13} />}
         {status === 'saving' ? '保存中' : '保存人体数据'}
       </button>
-      {status === 'saved' && <span className="body-metrics-ok"><Check size={13} /> 已保存，可用于尺码推荐</span>}
+      {status === 'saved' && <span className="body-metrics-ok"><Check size={13} /> 已保存在本机，可用于尺码推荐</span>}
       {error && <span className="body-metrics-error" role="alert">{error}</span>}
     </div>
   </section>;

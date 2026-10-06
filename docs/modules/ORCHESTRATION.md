@@ -2,6 +2,8 @@
 
 实现：`pipeline.py`、`storage.py`。一个后台线程串行处理任务，SQLite WAL 持久化任务与资产。数据目录持有进程文件锁，阻止两个实例同时操作云任务。
 
+> 顾客任务现在运行在 `transient.py` 的临时 Store 上：元数据只在 RAM，输入与工作文件只在标记的临时目录，交付结果由浏览器保存后确认删除。下面的持久化路径描述的是 `storage.py` 这一基类及其遗留部署，顾客数据的存储契约以 [顾客本地数据与临时计算](PRIVACY.md) 为准。
+
 ## 任务状态
 
 queued → running → succeeded / failed。姿势编辑增加 running → awaiting_review → queued；拒绝为 rejected。审核使用 SQLite `BEGIN IMMEDIATE`，重复确认返回 409，避免启动重复任务。

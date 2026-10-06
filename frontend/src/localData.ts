@@ -60,6 +60,14 @@ export function localFileUrl(id: string): string | undefined {
   return loadedNamespace === dataNamespace() ? urls.get(id) : undefined;
 }
 
+/** One saved asset, carrying the blob URL this page can render right now. */
+export function localAsset(id: string): Asset | undefined {
+  const asset = localValue<Asset | undefined>(id, undefined);
+  if (!asset) return undefined;
+  // The stored url is a server route nothing may render; the blob is the copy.
+  return { ...asset, url: localFileUrl(id) ?? '' };
+}
+
 export async function saveLocal<T>(id: string, value: T, blob?: Blob, namespace = dataNamespace()): Promise<T> {
   const database = await db();
   await new Promise<void>((resolve, reject) => {
@@ -91,6 +99,23 @@ export async function localRecords<T>(prefix: string, namespace = dataNamespace(
   return (await records(namespace)).filter((item) => item.id.startsWith(prefix)).map((item) => item.value as T);
 }
 
+/**
+ * Every asset this browser holds, in the order it was saved.
+ *
+ * An asset is stored under its own id, so a record whose value carries the same
+ * id and a kind is one; task and profile records are keyed by a prefix instead
+ * and are skipped.
+ */
+export async function localAssets(kind?: string, namespace = dataNamespace()): Promise<Asset[]> {
+  return (await records(namespace))
+    .filter((item) => {
+      const value = item.value as Asset | undefined;
+      if (!value || item.id !== value.id || typeof value.kind !== 'string') return false;
+      return !kind || value.kind === kind;
+    })
+    .map((item) => ({ ...(item.value as Asset), url: localFileUrl(item.id) ?? '' }));
+}
+
 export async function clearLocalData(): Promise<void> {
   const namespace = dataNamespace(); const database = await db(); const saved = await records(namespace);
   await new Promise<void>((resolve, reject) => {
@@ -100,6 +125,17 @@ export async function clearLocalData(): Promise<void> {
     transaction.onerror = transaction.onabort = () => reject(new Error('删除本地数据失败'));
   });
   await hydrateLocalData(namespace);
+}
+
+export async function importLocalModel(file: File): Promise<Asset> {
+  if (!file.name.toLowerCase().endsWith('.glb') || file.size > 150 * 1024 * 1024) {
+    throw new Error('请导入不超过 150 MiB 的 GLB 文件');
+  }
+  const id = crypto.randomUUID().replace(/-/g, '');
+  // Stored byte for byte: the server re-validates it on the way back in.
+  const asset: Asset = { id, kind: 'model', url: '', size: file.size, format: 'GLB', name: file.name };
+  await saveLocal(id, asset, file);
+  return { ...asset, url: localFileUrl(id)! };
 }
 
 export async function importLocalImage(file: File, kind = 'image', removeBackground = false): Promise<Asset> {

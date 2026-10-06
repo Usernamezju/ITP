@@ -25,7 +25,7 @@ def test_tryon_requires_configuration_without_affecting_3d(settings, image_bytes
 
 
 @pytest.mark.parametrize("variant", ["seedream", "flux_max"])
-def test_tryon_six_results_continue_without_upload(settings, image_bytes, variant):
+def test_tryon_six_results_continue_from_the_browser_copy(settings, image_bytes, variant):
     settings = settings.model_copy(update={
         "seedream_endpoint": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
         "seedream_api_key": SecretStr("test-only"),
@@ -49,7 +49,6 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes, varian
         created = client.post("/api/tryons", json=payload)
         assert created.status_code == 201, created.text
         tryon = created.json()
-        assert client.post(f"/api/tryons/{tryon['id']}/continue").status_code == 409
         app.state.tryon_worker.run_job(tryon)
         ready = client.get(f"/api/tryons/{tryon['id']}").json()
         assert ready["state"] == "ready"
@@ -58,10 +57,19 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes, varian
         assert all(call[2] == settings.tryon_model_for(variant) for call in calls)
         for asset_id in ready["results"].values():
             assert client.get(f"/api/assets/{asset_id}/file").status_code == 200
-        continued = client.post(f"/api/tryons/{tryon['id']}/continue")
+        # Standing in for the browser: the customer saved these six pictures on
+        # their own device, so continuing to 3D means uploading a local copy.
+        front = client.post("/api/assets", files={
+            "file": ("front.png", client.get(
+                f"/api/assets/{ready['results']['front']}/file").content)}).json()
+        continued = client.post("/api/jobs", json={
+            "name": "从试穿继续", "front": front["id"],
+            "views": {view: front["id"] for view in VIEWS if view != "front"},
+            "views_consistent_confirmed": True,
+        })
         assert continued.status_code == 201, continued.text
         request = continued.json()["request"]
-        assert request["front"] == ready["results"]["front"]
+        assert request["front"] == front["id"]
         assert set(request["views"]) == set(VIEWS) - {"front"}
         assert request["views_consistent_confirmed"] is True
 

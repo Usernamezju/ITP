@@ -31,14 +31,14 @@ flowchart TD
 | Pose | 角色 + 姿势图的多图编辑 | 阿里云百炼国内端点 |
 | Geometry | 图像编码、几何推理、网格提取 | 腾讯混元云端内部实现，客户端不伪造独立 encoder |
 | Topology / Texture / Rig | 独立异步云任务 | Tencent AI3D 2025-05-13 |
-| Orchestrator | 阶段状态、失败传播、重启恢复 | SQLite + 单进程后台 worker |
-| Assets | 本地持久化、限大小下载、受限下载域 | 文件系统 + 元数据 |
+| Orchestrator | 阶段状态、失败传播、审核与产物衔接 | 单进程后台 worker + 临时 Store（元数据在 RAM） |
+| Assets | 顾客素材临时化：上传 → 计算 → 浏览器保存 → 确认删除 | 标记临时目录 + 有界 RAM 交付缓冲；商户商品图持久化 |
 
 ## 状态与部署
 
 任务依次进入 queued → running → awaiting_review（姿势图）→ queued → running → succeeded；错误进入 failed。阶段记录供应商任务 ID、请求 ID、开始时间、状态和产物。网络不确定的提交不能重试；已知 ID 的查询可以重试。
 
-数据库为 SQLite，先实现单实例串行 worker，以符合默认云服务并发限制。用进程文件锁拒绝多实例误启动。API 默认仅绑定 127.0.0.1。前端依赖构建后由本地提供，不使用外部 CDN。
+顾客任务元数据驻留在内存中的 SQLite 实例（`transient.py`），账号、商户与资金数据落在磁盘上的 SQLite 文件。先实现单实例串行 worker，以符合默认云服务并发限制。用进程文件锁拒绝多实例误启动。API 默认仅绑定 127.0.0.1。前端依赖构建后由本地提供，不使用外部 CDN。
 
 ## ADR-001：国内云端作为主路径
 
@@ -60,5 +60,6 @@ flowchart TD
 显示“暂不可用”，不引导用户填写密钥。公网 Nginx 和配置了 public origin 的
 FastAPI 都拒绝旧 `/api/settings`，该维护路径不在 OpenAPI 中公开。
 
-账号、计费及周期权益已实现；支付以及顾客资产的本地化仍在后续商业模块，当前状态见
+账号、计费、周期权益与支付订单已实现；顾客资产与临时工作区在 C04 完成了服务端
+与浏览器两侧的切换（见 [顾客本地数据与临时计算](modules/PRIVACY.md)），当前状态见
 [实施计划](PLAN.md)；这一边界调整没有迁移或删除存量顾客数据。

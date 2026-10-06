@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from itp.config import Settings
 from itp.preprocessing import MAX_UPLOAD
 from itp.storage import Store
+from itp.transient import TransientDocuments
 
 logger = logging.getLogger(__name__)
 MAX_GLB = 100 * 1024 * 1024
@@ -53,7 +54,14 @@ def valid_glb(data: bytes) -> bool:
 
 
 class FaceRefineRequest(BaseModel):
+    """One refinement run: the model to refine and the photo to refine it from.
+
+    Both are temporary uploads made for this run; the browser keeps its own copy
+    of the original model and hands it back whenever a refinement is wanted.
+    """
+
     model_config = ConfigDict(extra="forbid")
+    mesh: str = Field(pattern=r"^[a-f0-9]{32}$")
     face_photo: str = Field(pattern=r"^[a-f0-9]{32}$")
 
 
@@ -84,12 +92,18 @@ def prepare_face_photo(data: bytes) -> Image.Image:
 
 
 class FaceRefineStore:
+    """Legacy on-disk refinements. The running service keeps these in RAM only.
+
+    Rows written before the switch name its second column ``source_job_id``;
+    the statements here address columns by position, so both files keep working.
+    """
+
     def __init__(self, root: Path):
         self.db = root / "face_refinements.sqlite3"
         with self.connect() as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS face_refinements "
-                "(id TEXT PRIMARY KEY, source_job_id TEXT, state TEXT, created REAL, document TEXT)"
+                "(id TEXT PRIMARY KEY, mesh_asset TEXT, state TEXT, created REAL, document TEXT)"
             )
 
     def connect(self):
@@ -101,18 +115,16 @@ class FaceRefineStore:
                 "INSERT OR REPLACE INTO face_refinements VALUES (?, ?, ?, ?, ?)",
                 (
                     item["id"],
-                    item["source_job_id"],
+                    item["mesh_asset"],
                     item["state"],
                     item["created"],
                     json.dumps(item),
                 ),
             )
 
-    def create(self, source_job_id: str, face_photo: str, mesh_asset: str, model: str,
-               owner_id=None) -> dict:
+    def create(self, mesh_asset: str, face_photo: str, model: str, owner_id=None) -> dict:
         item = {
             "id": uuid4().hex,
-            "source_job_id": source_job_id,
             "face_photo": face_photo,
             "mesh_asset": mesh_asset,
             "model": model,
@@ -132,15 +144,6 @@ class FaceRefineStore:
                 "SELECT document FROM face_refinements WHERE id = ?", (item_id,)
             ).fetchone()
         return json.loads(row[0]) if row else None
-
-    def for_job(self, source_job_id: str) -> list[dict]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                "SELECT document FROM face_refinements WHERE source_job_id = ? "
-                "ORDER BY created DESC",
-                (source_job_id,),
-            ).fetchall()
-        return [json.loads(row[0]) for row in rows]
 
     def active(self) -> list[dict]:
         with self.connect() as conn:
@@ -206,7 +209,7 @@ class FaceRefineWorker:
     def __init__(
         self,
         assets: Store,
-        jobs: FaceRefineStore,
+        jobs: TransientDocuments,
         settings: Settings,
         provider: FaceVerseProvider | None = None,
     ):
@@ -230,13 +233,8 @@ class FaceRefineWorker:
             asset_id, path = self.assets.new_asset_path("glb")
             path.write_bytes(glb)
             self.assets.add_asset(asset_id, path, "model", format="GLB")
-            source = self.assets.job(item["source_job_id"])
-            if not source:
-                raise ValueError("原 3D 任务已不存在")
-            source["artifacts"].append(
-                {"asset_id": asset_id, "format": "GLB", "stage": "face_refine", "index": 0}
-            )
-            self.assets.save_job(source)
+            # The refined model is delivered on its own; the browser owns the
+            # original and never needed the server to keep a job for this.
             item["result_asset"] = asset_id
             item["report"] = report
             item["state"] = "ready"

@@ -3,6 +3,8 @@ import { sessionToken } from './session';
 export type Asset = {
   id: string; url: string; kind: string; width?: number; height?: number;
   size: number; format?: string; background_removed?: boolean; remove_background?: boolean;
+  /** The file name the customer picked, for imported models. */
+  name?: string;
 };
 export type TryOnProvider = 'seedream' | 'flux' | 'flux_max' | 'flux_klein' | 'flux_klein_9b' | 'gpt_image';
 export type Capabilities = {
@@ -73,7 +75,8 @@ export type OutfitResponse = {
 export type PoseMode = 'original' | 'custom' | 'a-pose' | 't-pose';
 export type Job = {
   id: string; name: string; state: string; created: number; error: string | null;
-  request: { front: string; pose_mode: PoseMode; topology: boolean; texture: boolean;
+  request: { front: string; views?: Record<string, string>; pose_reference?: string | null;
+    pose_mode: PoseMode; topology: boolean; texture: boolean;
     rig: boolean; export_fbx: boolean; face_count?: number };
   models?: { geometry?: string; pose?: string };
   pose_asset: string | null;
@@ -92,11 +95,21 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
+/** Routes that need the signed-in account; everything else answers without it. */
+const AUTH_ROUTES = new RegExp('^/api/(' + [
+  'auth/', 'account/', 'merchant/', 'jobs(?:/|$)', 'tryons(?:/|$)',
+  'assets(?:/|$)', 'face-photos', 'model-assets', 'face-refinements', 'outfits/recommend',
+].join('|') + ')');
+
+export function authHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
   const token = sessionToken.read();
-  if (/^\/api\/(auth\/|account\/|merchant\/|jobs(?:\/|$)|tryons\/[^/]+\/continue$)/.test(url)
-    && token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  return headers;
+}
+
+export async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = AUTH_ROUTES.test(url) ? authHeaders(init?.headers) : new Headers(init?.headers);
   const response = await fetch(url, { ...init, headers });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
@@ -111,9 +124,8 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function post<T>(url: string, body: unknown): Promise<T> {
   const key = `${url}:${JSON.stringify(body)}`;
-  const charged = url === '/api/jobs' || /^\/api\/tryons\/[^/]+\/continue$/.test(url);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (charged) {
+  if (REPEATABLE.has(url)) {
     if (!pendingCharges.has(key)) pendingCharges.set(key, crypto.randomUUID());
     headers['Idempotency-Key'] = pendingCharges.get(key)!;
   }
@@ -125,6 +137,15 @@ export function post<T>(url: string, body: unknown): Promise<T> {
   });
 }
 
+// A retried request keeps its key so the wallet is charged at most once.
+const REPEATABLE = new Set(['/api/jobs', '/api/tryons']);
 const pendingCharges = new Map<string, string>();
 
-export const fileUrl = (id: string) => `/api/assets/${id}/file`;
+/** The bytes of one server asset; only the signed-in owner may read them. */
+export async function fetchBlob(url: string): Promise<Blob> {
+  const response = await fetch(url, { headers: authHeaders() });
+  if (!response.ok) throw new ApiError(`读取服务器文件失败（${response.status}）`, response.status);
+  return response.blob();
+}
+
+/** A local blob URL for one server asset, kept alive for this page. */

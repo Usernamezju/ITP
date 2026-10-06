@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Box, Check, ChevronRight, CircleHelp,
   Clock3, FileBox, FolderOpen, ImagePlus, Layers3, LoaderCircle, Plus, Settings2, Shirt,
   SlidersHorizontal, Sparkles, Store, Unplug, Upload, X } from 'lucide-react';
-import { api, post, fileUrl, type Asset, type Capabilities, type Job, type PoseMode } from './api';
+import { api, post, type Asset, type Capabilities, type Job, type PoseMode } from './api';
 import { AppearancePage } from './AppearancePage';
 import { AccountAvatar, AccountPage } from './AccountPage';
 import { logoutAccount, useAccountSession } from './accountApi';
@@ -13,9 +13,11 @@ import { TryOnPage } from './TryOnPage';
 import { OutfitsPage } from './OutfitsPage';
 import { MerchantPage } from './MerchantPage';
 import { BodyMetricsPanel } from './BodyMetricsPanel';
+import { hydrateLocalData, importLocalImage, importLocalModel, localAsset, localFileUrl, localRecords } from './localData';
 import { sessionToken } from './session';
 import { yuanText } from './money';
 import { FaceRefinePanel } from './FaceRefinePanel';
+import { TERMINAL, acknowledge, saveJob, uploadEach, type LocalJob } from './transient';
 
 const stageLabels: Record<string, string> = {
   pose: '姿势编辑', geometry: '几何生成', topology: '智能拓扑', texture: 'PBR 纹理', rig: '自动绑骨', export: 'FBX 导出', face_refine: '脸部精修',
@@ -24,13 +26,13 @@ const stateLabels: Record<string, string> = {
   queued: '等待处理', running: '正在生成', awaiting_review: '等待确认姿势',
   succeeded: '生成完成', failed: '生成失败', rejected: '姿势图已放弃',
 };
-function jobState(job: Job): { label: string; className: string } {
+function jobState(job: Job | LocalJob): { label: string; className: string } {
   if (job.state === 'failed' && job.artifacts.length > 0) {
     return { label: '部分完成', className: 'partial' };
   }
   return { label: stateLabels[job.state] || job.state, className: job.state };
 }
-function completedStages(job: Job): string {
+function completedStages(job: LocalJob): string {
   return [...new Set(job.artifacts.map((item) => stageLabels[item.stage] || item.stage))].join('、');
 }
 const modes: { key: PoseMode; label: string }[] = [
@@ -48,12 +50,10 @@ function UploadCard({ label, asset, onChange, onPreview, background, compact = f
   const [drag, setDrag] = useState(false);
   async function upload(file?: File) {
     if (!file || loading) return;
-    if (file.size > 10 * 1024 * 1024) { onError('单张图片不能超过 10 MiB'); return; }
     setLoading(true); onBusy(1);
     try {
-      const form = new FormData(); form.append('file', file);
-      const uploaded = await api<Asset>(`/api/assets?remove_background=${background}`, { method: 'POST', body: form });
-      onChange(uploaded);
+      // The picture stays in this browser; only a task submission uploads it.
+      onChange(await importLocalImage(file, 'image', background));
     } catch (error) { onError((error as Error).message); }
     finally { setLoading(false); onBusy(-1); if (input.current) input.current.value = ''; }
   }
@@ -88,7 +88,7 @@ function Toggle({ checked, onChange, title, description, disabled = false }: {
 
 export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<LocalJob[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'appearance' | 'account'>('workspace');
   const account = useAccountSession();
@@ -119,6 +119,7 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState<{ asset: Asset; label: string } | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const imageDialog = useRef<HTMLDialogElement>(null);
+  const [ready, setReady] = useState(false);
   const job = jobs.find((item) => item.id === selected);
   const active = jobs.filter((item) => ['queued', 'running', 'awaiting_review'].includes(item.state)).length;
 
@@ -127,17 +128,41 @@ export default function App() {
     let timer: ReturnType<typeof setTimeout>;
     async function refresh() {
       try {
-        const [capabilities, history] = await Promise.all([
-          api<Capabilities>('/api/capabilities'), sessionToken.read() ? api<Job[]>('/api/jobs') : Promise.resolve([]),
-        ]);
-        if (!stopped) { setCaps(capabilities); setJobs(history); }
+        const capabilities = await api<Capabilities>('/api/capabilities');
+        // This browser's own record of every task it started.
+        const saved = await localRecords<LocalJob>('job:');
+        const merged = new Map(saved.map((item) => [item.id, item]));
+        if (sessionToken.read()) {
+          // Tasks the server still holds: save their files, then let it delete
+          // its copies.  A task whose files could not be saved stays on the
+          // server and is retried on the next tick.
+          for (const live of await api<Job[]>('/api/jobs')) {
+            // Every artifact is saved here first; only then may the server
+            // forget its own copy.
+            const mirror = await saveJob(live);
+            merged.set(mirror.id, mirror);
+            if (TERMINAL.has(live.state)) await acknowledge('jobs', live.id);
+          }
+        }
+        if (!stopped) {
+          setCaps(capabilities);
+          setJobs([...merged.values()].sort((left, right) => right.created - left.created));
+        }
       } catch (err) { if (!stopped) setError(`连接工作台失败：${(err as Error).message}`); }
       finally { if (!stopped) timer = setTimeout(refresh, 3000); }
     }
     void refresh();
     return () => { stopped = true; clearTimeout(timer); };
-  }, []);
-  useEffect(() => () => { if (localModel) URL.revokeObjectURL(localModel.url); }, [localModel]);
+  }, [account.user?.id]);
+  useEffect(() => {
+    // The browser keeps one data partition per account; switching re-reads it.
+    let active = true;
+    setReady(false);
+    void hydrateLocalData()
+      .then(() => { if (active) setReady(true); })
+      .catch((err) => { if (active) { setReady(true); setError((err as Error).message); } });
+    return () => { active = false; };
+  }, [account.user?.id]);
   useEffect(() => {
     let alive = true;
     void api<{ model_price_cents: number }>('/api/pricing').then((pricing) => {
@@ -151,7 +176,7 @@ export default function App() {
     if (!imagePreview && imageDialog.current?.open) imageDialog.current.close();
   }, [imagePreview]);
 
-  function chooseJob(item: Job) {
+  function chooseJob(item: LocalJob) {
     setSelected(item.id); setTab('workspace'); setArtifact(null); setLocalModel(null);
   }
   function newProject() {
@@ -181,15 +206,26 @@ export default function App() {
     if (generateIssues.length || !front) return;
     setSubmitting(true); setError('');
     try {
+      // Upload the local pictures for this run only; the server deletes them
+      // again as soon as this browser has saved the results.
+      const filled = Object.entries(views).filter(([, value]) => value) as [string, Asset][];
+      const [uploadedFront, ...rest] = await uploadEach([
+        front.id, ...filled.map(([, value]) => value.id),
+        ...(poseMode === 'custom' && reference ? [reference.id] : []),
+      ]);
+      const uploadedViews = Object.fromEntries(filled.map(([key], index) => [key, rest[index].id]));
+      const uploadedReference = poseMode === 'custom' && reference ? rest[filled.length]?.id : null;
       const created = await post<Job>('/api/jobs', {
-        name: name.trim() || '未命名资产', front: front.id,
-        views: Object.fromEntries(Object.entries(views).filter(([, value]) => value).map(([key, value]) => [key, value!.id])),
+        name: name.trim() || '未命名资产', front: uploadedFront.id,
+        views: uploadedViews,
         views_consistent_confirmed: viewsConsistent,
-        pose_mode: poseMode, pose_reference: poseMode === 'custom' ? reference?.id : null,
+        pose_mode: poseMode, pose_reference: uploadedReference ?? null,
         topology, polygon_type: polygon, face_level: faceLevel, face_count: faceCount,
         texture, rig, neutral_pose_confirmed: neutral, export_fbx: fbx,
       });
-      setJobs((list) => [created, ...list]); chooseJob(created);
+      const mirror = await saveJob(created);
+      setJobs((list) => [mirror, ...list.filter((item) => item.id !== mirror.id)]);
+      chooseJob(mirror);
     } catch (err) { setError((err as Error).message); }
     finally { setSubmitting(false); }
   }
@@ -197,13 +233,14 @@ export default function App() {
     if (!job) return;
     setSubmitting(true);
     try {
-      const updated = await post<Job>(`/api/jobs/${job.id}/review`, { approve });
-      setJobs((list) => list.map((item) => item.id === updated.id ? updated : item));
+      const mirror = await saveJob(await post<Job>(`/api/jobs/${job.id}/review`, { approve }));
+      setJobs((list) => list.map((item) => item.id === mirror.id ? mirror : item));
     } catch (err) { setError((err as Error).message); }
     finally { setSubmitting(false); }
   }
-  const generatedGlb = job?.artifacts.filter((item) => item.format === 'GLB').at(-1)?.asset_id;
-  const modelUrl = localModel?.url ?? (artifact ? fileUrl(artifact) : generatedGlb ? fileUrl(generatedGlb) : null);
+  const generatedGlb = job?.artifacts.filter((item) => item.format === 'GLB').at(-1)?.id;
+  const modelUrl = localModel?.url ?? localFileUrl(artifact ?? generatedGlb ?? '') ?? null;
+  const previewImage = (id?: string | null) => (ready && id ? localAsset(id)?.url : undefined);
   const planned = ['geometry', ...(topology ? ['topology'] : []), ...(texture ? ['texture'] : []),
     ...(rig ? ['rig'] : []), ...(fbx ? ['export'] : [])];
 
@@ -232,8 +269,8 @@ export default function App() {
       {tab === 'appearance' ? <AppearancePage colorTheme={colorTheme} contrastTheme={contrastTheme}
         onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'account' ?
         <AccountPage key={account.user?.id || 'anonymous'} user={account.user} onChanged={account.refresh} /> : tab === 'tryon' ?
-        <TryOnPage caps={caps} onContinue={(created) => { setJobs((list) => [created, ...list]); chooseJob(created); }} /> : tab === 'outfits' ?
-        <OutfitsPage caps={caps} jobs={jobs} onModeling={() => setTab('workspace')} /> : tab === 'merchant' ?
+        <TryOnPage caps={caps} ready={ready} onContinue={(created) => { setJobs((list) => [created, ...list.filter((item) => item.id !== created.id)]); chooseJob(created); }} /> : tab === 'outfits' ?
+        <OutfitsPage caps={caps} ready={ready} onModeling={() => setTab('workspace')} /> : tab === 'merchant' ?
         account.user?.role === 'customer' ? <section className="account-page"><div className="account-card">
           <h2>商家后台仅限商家账号访问</h2><p>当前账号为普通顾客，可通过右上角管理账号。</p>
           <button className="button" onClick={() => setTab('account')}>查看账号</button></div></section>
@@ -241,7 +278,7 @@ export default function App() {
         <div className="section-heading"><h2>任务记录 <span>{jobs.length}</span></h2><small>{active} 个待处理任务</small></div>
         {!jobs.length ? <div className="history-empty"><FolderOpen size={42} strokeWidth={1} /><h3>第一件作品，从这里开始</h3><p>你的生成任务与中间产物会保存在本地。</p><button className="button" onClick={() => setTab('workspace')}>前往工作台 <ArrowRight size={16} /></button></div> :
           <div className="history-grid">{jobs.map((item) => <button className="history-card" key={item.id} onClick={() => chooseJob(item)}>
-            <img src={fileUrl(item.pose_asset || item.request.front)} alt={item.name} /><div><strong>{item.name}</strong><span className={`state ${jobState(item).className}`}>{jobState(item).label}</span><small>{new Date(item.created * 1000).toLocaleString('zh-CN')}</small></div><ChevronRight size={17} />
+            <img src={previewImage(item.pose_asset || item.request.front)} alt={item.name} /><div><strong>{item.name}</strong><span className={`state ${jobState(item).className}`}>{jobState(item).label}</span><small>{new Date(item.created * 1000).toLocaleString('zh-CN')}</small></div><ChevronRight size={17} />
           </button>)}</div>}
       </section> : <main className="studio-grid">
         <section className="input-panel">
@@ -257,7 +294,7 @@ export default function App() {
               <p className="hint">{poseMode === 'original' ? '保留原图姿态。可补充同一姿势的多视角图片。' : '先生成中性姿态参考图，确认后进入 3D 生成。'}</p>}
             {poseMode === 'original' && <><div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图'], ['left_front', '左前 45°'], ['right_front', '右前 45°']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>
               {Object.values(views).some(Boolean) && <label className="confirmation"><input type="checkbox" checked={viewsConsistent} onChange={(event) => setViewsConsistent(event.target.checked)} />我确认所有视角为同一人物、同一服装、同一姿势</label>}</>}
-            <BodyMetricsPanel jobId={job?.id} />
+            <BodyMetricsPanel ready={ready} />
             <div className="divider" /><div className="field-heading"><label className="field-label">资产处理</label><span>PIPELINE</span></div>
             <label className="select-row">几何目标面数<select aria-label="几何目标面数" value={faceCount} onChange={(event) => setFaceCount(Number(event.target.value))}><option value={30000}>30,000 · 轻量</option><option value={100000}>100,000 · 均衡</option><option value={500000}>500,000 · 精细</option><option value={1500000}>1,500,000 · 极致</option></select></label>
             <Toggle title="智能拓扑" description="重新组织网格，降低面数" checked={topology} onChange={setTopology} />
@@ -286,9 +323,13 @@ export default function App() {
           </dl>}</div>
           <button className="text-button" onClick={() => importInput.current?.click()}><Upload size={14} /> 导入 GLB</button>
           <input ref={importInput} type="file" accept=".glb" hidden aria-label="导入 GLB 模型" onChange={(event) => {
-            const file = event.target.files?.[0]; if (!file) return;
-            if (!file.name.toLowerCase().endsWith('.glb') || file.size > 150 * 1024 * 1024) { setError('请导入不超过 150 MiB 的 GLB 文件'); return; }
-            setLocalModel({ url: URL.createObjectURL(file), name: file.name }); event.target.value = '';
+            const file = event.target.files?.[0]; event.target.value = '';
+            if (!file) return;
+            // A picked model is the customer's own asset and is kept locally,
+            // like the pictures: the server only sees it during a run.
+            void importLocalModel(file)
+              .then((asset) => setLocalModel({ url: asset.url, name: asset.name || '本地模型' }))
+              .catch((err) => setError((err as Error).message));
           }} /></div>
           <Viewer url={modelUrl} label={localModel?.name || (job ? job.name : '未命名场景')} />
           <div className="pipeline-strip"><span>处理流程</span><div>{(job ? [
@@ -299,21 +340,21 @@ export default function App() {
             const step = job?.steps.find((s) => s.name === stage);
             return <span key={stage} className={`pipeline-stage ${step?.status || ''}`}>{index > 0 && <ChevronRight size={12} />}{step?.status === 'done' ? <Check size={12} /> : <i />}{stageLabels[stage]}</span>;
           })}</div></div>
-          {job?.state === 'awaiting_review' && <div className="review-card"><img src={fileUrl(job.pose_asset!)} alt="生成的姿势参考图" /><div><h3>确认这个姿势，再生成三维</h3><p>检查角色外观、四肢方向和完整性。确认后将调用 3D 生成服务。</p><div className="review-actions"><button className="button" disabled={submitting} onClick={() => void review(true)}><Check size={15} /> 确认并生成 3D</button><button className="text-button" disabled={submitting} onClick={() => void review(false)}>放弃此姿势</button></div></div></div>}
+          {job?.state === 'awaiting_review' && <div className="review-card"><img src={previewImage(job.pose_asset)} alt="生成的姿势参考图" /><div><h3>确认这个姿势，再生成三维</h3><p>检查角色外观、四肢方向和完整性。确认后将调用 3D 生成服务。</p><div className="review-actions"><button className="button" disabled={submitting} onClick={() => void review(true)}><Check size={15} /> 确认并生成 3D</button><button className="text-button" disabled={submitting} onClick={() => void review(false)}>放弃此姿势</button></div></div></div>}
           {job?.error && <div className="job-error" role="alert">
             {job.state === 'failed' && job.artifacts.length > 0 && <p>已完成{completedStages(job)}，{stageLabels[job.steps.find((step) => step.status === 'failed')?.name || ''] || '后续步骤'}未完成。已有产物仍可预览、下载。</p>}
             <p>{explainJobError(job.error, job.steps.find((step) => step.status === 'failed')?.name)}</p>
           </div>}
           <div className="assets-section"><div className="section-heading"><h2><FileBox size={16} /> 生成产物</h2><span className={job ? `state ${jobState(job).className}` : 'muted'}>{job ? jobState(job).label : '尚未生成'}</span></div>
-            {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.asset_id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.asset_id); }}>预览</button>}<a href={`${fileUrl(item.asset_id)}?download=true`} download aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
+            {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.id); }}>预览</button>}<a href={localFileUrl(item.id)} download={`${job.name}-${item.stage}.${item.format.toLowerCase()}`} aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
           </div>
           {job?.state === 'succeeded' && job.artifacts.some((item) => item.format === 'GLB') &&
-            <FaceRefinePanel jobId={job.id} configured={Boolean(caps?.faceverse)} />}
+            <FaceRefinePanel model={generatedGlb!} name={job.name} configured={Boolean(caps?.faceverse)} />}
         </section>
         <aside className="inspector"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
           <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>服务状态</h3><p>将图片转为可用的三维资产，无需配置接口。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '可用' : '暂不可用'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '可用' : '暂不可用'}</b></div><div className="service-line"><span>去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '可用' : '暂不可用'}</b></div></div>
           <div className="recent-heading"><h3>最近任务</h3><button className="text-button" onClick={() => setTab('history')}>全部 <ChevronRight size={12} /></button></div>
-          {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={fileUrl(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${jobState(item).className}`}>{jobState(item).label}</small></span><ChevronRight size={12} /></button>)}
+          {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={previewImage(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${jobState(item).className}`}>{jobState(item).label}</small></span><ChevronRight size={12} /></button>)}
           {!jobs.length && <div className="recent-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>每一步进度都会保存在这里</small></div>}
           {job && <div className="trace"><h3>任务信息</h3><code>{job.id}</code>{job.steps.filter((s) => s.provider_job_id).map((s) => <p key={s.name}>{stageLabels[s.name]}<code>{s.provider_job_id}</code></p>)}</div>}
           <div className="inspector-note"><span>创作提示</span><p>完整、清晰的角色轮廓，以及无遮挡的手脚，会让三维生成更稳定。</p></div>

@@ -10,7 +10,7 @@
 2. **商家发布的单品**（`GET /api/garments`）——同样按尺码指标打分，一张卡展示一件。
 3. **内置 18 套目录**——商家还没发布任何商品时的兜底，沿用标签匹配，`origin` 为 `catalogue`。
 
-尺码匹配的输入来自两处：「人体建模」页选填的身高/体重/肩宽/胸围/腰围/臀围，以及「穿搭推荐」页解析 GLB 得到的比例。指标定义、换算与打分规则见 [指标与匹配规范](METRICS.md)；商家如何导入商品见 [商家接口](MERCHANT.md)。
+尺码匹配的输入来自两处：「人体建模」页选填的身高/体重/肩宽/胸围/腰围/臀围，以及「穿搭推荐」页解析 GLB 得到的比例。两者都存在浏览器里，随单次推荐请求上传，服务端算完即弃。指标定义、换算与打分规则见 [指标与匹配规范](METRICS.md)；商家如何导入商品见 [商家接口](MERCHANT.md)。
 
 ## 目标与边界
 
@@ -76,12 +76,28 @@
 
 `GET /api/outfits`
 
+公开的通用推荐：只读商家发布目录与内置目录，**不接收任何顾客数据**，因此没有
+`job_id` / `asset_id` 参数。
+
 | 参数 | 说明 |
 | --- | --- |
-| `job_id` | ITP 任务 id，取其最新的 GLB 产物进行分析 |
-| `asset_id` | 直接指定已存储的 GLB 资产；与 `job_id` 同时给出时以 `asset_id` 为准，`job_id` 仍提供姿态与参考图说明 |
 | `style` / `season` / `occasion` | 目录中出现的原文筛选值 |
 | `limit` | 1–24，默认 6；越界返回 422 |
+
+`POST /api/outfits/recommend`
+
+按顾客自己的模型与数值打分，需要登录（Bearer 令牌）。请求体 `extra="forbid"`：
+
+| 字段 | 说明 |
+| --- | --- |
+| `asset_id` | 浏览器本次上传的 GLB 临时资产 id（32 位十六进制，须为本人所有）；计算完成即删除，无论成败 |
+| `measurements` | 建模页填写的人体数值，可空；只用于本次打分，不落盘 |
+| `pose_mode` | 该模型的姿势模式，校验失败返回 422 |
+| `style` / `season` / `occasion` | 同公开接口 |
+| `limit` | 1–24，默认 6 |
+
+两者响应形状相同（见下）。页面在已登录且本机有模型时调用 `POST`，未登录时退回
+`GET` 的通用推荐。
 
 响应固定四个顶层字段：`source`（`model` / `default`）、`analysis`（`available`、`method`、`labels`、`metrics`、`profile`、`notes`、`tags`，有模型与无模型形状一致）、`filters`（`styles` / `seasons` / `occasions`，各为 `{id, count}`，`count` 是全目录数量、不受当前筛选影响）、`recommendations`（按分数降序，含 `id`、`name`、`tagline`、`story`、`style`、`season`、`occasion`、`palette`、`items`、`tips`、`avoid`、`reason`、`score`、`matched`）。
 
@@ -103,6 +119,6 @@
 
 - `tests/test_wardrobe.py`：27 项，覆盖目录完整性、现场合成的 GLB 解析、T-Pose 手臂剔除、9 类非法或损坏 GLB 的降级、打分与筛选、`limit`、确定性，以及 5 组接口测试。
 - `tests/test_outfit_images.py`：49 项，覆盖三个 provider 的响应解析与边界、缓存命中与 7 天过期、`refresh` 绕过、负缓存与 429/5xx 重试、去重与小图过滤、超限图片跳过、并发下载不错序、单张失败不影响其余、文件名白名单与目录穿越、`limit` 只切片不重复检索、以及旧本地维护配置字段的读写与非法值拒绝。全部离线，不访问网络。
-- `frontend/tests/outfits.spec.ts`：5 项，覆盖有模型的分析展示与卡片照片、换一张、详情弹窗的图片与来源链接、无模型时的通用推荐与跳转、检索失败回落到配色示意、筛选与模型来源确实传到接口；桌面与移动两个项目各跑一遍。
+- `frontend/tests/outfits.spec.ts`：6 项，覆盖有模型的分析展示与卡片照片、换一张、详情弹窗的图片与来源链接、无模型时的通用推荐与跳转、检索失败回落到配色示意、以及本机模型上传到 `POST /api/outfits/recommend` 时带上 `pose_mode`、筛选值与 `limit`；桌面与移动两个项目各跑一遍。
 - 真实联网验证：默认 360 图片在真实链路上返回了与风格匹配的中文穿搭图（腾讯新闻、网易、百家号等），页面显示、本地缓存、来源链接、路径穿越防护（四种非法文件名全部 404）均实测通过。
 - **未验证**：真实云 API 产出的 GLB。仓库内没有真实模型样例，真实图生 3D 需要付费云服务才能产生；分析逻辑只用合成几何与真实接口契约验证过，A-Pose 的肩宽判定尤其需要真实样例校准。Unsplash 与 Pixabay 两个 provider 也因没有密钥而只做了构造响应的单元测试。

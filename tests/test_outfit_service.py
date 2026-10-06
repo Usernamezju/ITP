@@ -49,6 +49,11 @@ def trousers(merchants, merchant_id, **overrides):
     return merchants.create_garment(merchant_id, normalize_metrics(payload))
 
 
+def score(store, merchants, **overrides):
+    """Score the numbers the browser sent; the server keeps no profile of its own."""
+    return recommend(store, merchants, body_profile=dict(MEASUREMENTS), **overrides)
+
+
 def make_look(merchants, merchant_id, item_ids, **overrides):
     payload = {
         "name": "柔雾通勤", "story": "上装塞进高腰裤，比例更长。", "status": "published",
@@ -63,9 +68,8 @@ def test_published_looks_are_scored_with_measurements(store, merchants, merchant
     top = make_garment(merchants, merchant["id"])
     bottom = trousers(merchants, merchant["id"])
     make_look(merchants, merchant["id"], [top["id"], bottom["id"]])
-    merchants.save_body_profile(dict(MEASUREMENTS))
 
-    report = recommend(store, merchants, limit=3)
+    report = score(store, merchants, limit=3)
 
     assert len(report["recommendations"]) == 1
     outfit = report["recommendations"][0]
@@ -88,9 +92,8 @@ def test_published_looks_are_scored_with_measurements(store, merchants, merchant
 def test_garments_answer_when_no_look_is_published(store, merchants, merchant):
     make_garment(merchants, merchant["id"], name="单件针织")
     make_garment(merchants, merchant["id"], category="外套", name="落肩薄外套")
-    merchants.save_body_profile(dict(MEASUREMENTS))
 
-    report = recommend(store, merchants, limit=5)
+    report = score(store, merchants, limit=5)
 
     assert len(report["recommendations"]) == 2
     for outfit in report["recommendations"]:
@@ -104,9 +107,8 @@ def test_garments_answer_when_no_look_is_published(store, merchants, merchant):
 
 def test_draft_items_stay_hidden_and_the_catalogue_answers(store, merchants, merchant):
     make_garment(merchants, merchant["id"], status="draft")
-    merchants.save_body_profile(dict(MEASUREMENTS))
 
-    report = recommend(store, merchants, limit=3)
+    report = score(store, merchants, limit=3)
 
     assert report["recommendations"]
     assert all(outfit["origin"] == "catalogue" for outfit in report["recommendations"])
@@ -117,9 +119,8 @@ def test_a_look_whose_members_are_draft_is_skipped(store, merchants, merchant):
     hidden = make_garment(merchants, merchant["id"], status="draft", name="未发布上装")
     make_look(merchants, merchant["id"], [hidden["id"]], name="半成品套装")
     trousers(merchants, merchant["id"], name="已发布西裤")
-    merchants.save_body_profile(dict(MEASUREMENTS))
 
-    report = recommend(store, merchants, limit=5)
+    report = score(store, merchants, limit=5)
 
     names = [outfit["name"] for outfit in report["recommendations"]]
     assert "半成品套装" not in names
@@ -132,9 +133,8 @@ def test_member_images_become_the_product_gallery(store, merchants, merchant):
     bottom = trousers(merchants, merchant["id"])
     image = merchants.add_image(top["id"], "a" * 32)
     make_look(merchants, merchant["id"], [top["id"], bottom["id"]])
-    merchants.save_body_profile(dict(MEASUREMENTS))
 
-    report = recommend(store, merchants, limit=1)
+    report = score(store, merchants, limit=1)
 
     outfit = report["recommendations"][0]
     assert outfit["image_urls"] == [f"/api/garment-images/{image['id']}"]
@@ -156,10 +156,9 @@ def test_filters_follow_the_published_database(store, merchants, merchant):
 def test_recommendations_are_limited_and_deterministic(store, merchants, merchant):
     for index in range(5):
         make_garment(merchants, merchant["id"], name=f"单品{index}", style="通勤")
-    merchants.save_body_profile(dict(MEASUREMENTS))
 
-    first = recommend(store, merchants, limit=2)
-    second = recommend(store, merchants, limit=2)
+    first = score(store, merchants, limit=2)
+    second = score(store, merchants, limit=2)
 
     assert len(first["recommendations"]) == 2
     assert first == second
@@ -201,6 +200,7 @@ def test_body_inputs_without_a_model_marks_it_unavailable():
 
 
 def test_an_empty_database_notes_that_the_catalogue_is_used(store, merchants):
+    # A customer who typed nothing and uploaded no model still gets advice.
     report = recommend(store, merchants, limit=2)
 
     assert report["recommendations"]

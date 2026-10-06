@@ -98,17 +98,6 @@ def add_mesh(store, payload: bytes, *, owner=None) -> str:
     return asset_id
 
 
-def job_with_mesh(store, mesh_id: str, *, owner=None, **request):
-    body = {"name": "穿搭测试", "front": "f" * 32, "pose_mode": "t-pose"}
-    body.update(request)
-    job = store.create_job(body, owner_id=owner)
-    job["artifacts"].append(
-        {"asset_id": mesh_id, "format": "GLB", "stage": "geometry", "index": 0}
-    )
-    store.save_job(job)
-    return job
-
-
 # --------------------------------------------------------------------------- catalogue
 
 
@@ -338,26 +327,27 @@ def test_outfits_endpoint_limit_is_validated(settings):
             assert client.get(f"/api/outfits?{query}").status_code == 422
 
 
-def test_outfits_endpoint_degrades_for_unknown_references(settings, image_bytes):
+def test_outfits_endpoint_ignores_job_references_it_no_longer_reads(settings):
     with client_for(settings) as client:
+        # Old pages still send job_id/asset_id; the public catalogue has no
+        # customer data in it, so the extra parameters change nothing.
         for query in ("job_id=missing", "asset_id=missing", "job_id=missing&asset_id=missing"):
             response = client.get(f"/api/outfits?{query}")
             assert response.status_code == 200
             assert response.json()["source"] == "default"
-        upload = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
-        picture = client.get(f"/api/outfits?asset_id={upload['id']}")
-        assert picture.status_code == 200
-        assert picture.json()["source"] == "default"
 
 
-def test_outfits_endpoint_analyses_a_job_mesh(settings, image_bytes):
+def test_recommend_endpoint_analyses_a_temporary_mesh(settings):
     with client_for(settings) as client:
         store = client.app.state.store
         owner = client.app.state.merchants.merchant_by_name("model-tester")["id"]
-        front = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
         mesh = add_mesh(store, glb_bytes(), owner=owner)
-        job = job_with_mesh(store, mesh, owner=owner, pose_mode="t-pose", front=front["id"])
-        body = client.get(f"/api/outfits?job_id={job['id']}").json()
+        response = client.post("/api/outfits/recommend", json={
+            "asset_id": mesh, "pose_mode": "t-pose",
+            "measurements": {"height_cm": 180.0, "weight_kg": 68.0},
+        })
+        assert response.status_code == 200, response.text
+        body = response.json()
         assert body["source"] == "model"
         analysis = body["analysis"]
         assert analysis["available"] is True
@@ -366,23 +356,43 @@ def test_outfits_endpoint_analyses_a_job_mesh(settings, image_bytes):
         assert analysis["tags"] == ["slim", "light", "long-leg"]
         assert len(analysis["profile"]) == PROFILE_BANDS
         assert 4 <= len(analysis["metrics"]) <= 6
-        assert any("参考图 256×256" in note for note in analysis["notes"])
+        # Typed numbers score along the model, and are labelled as typed.
+        assert analysis["body"]["height_cm"]["source"] == "input"
+        assert analysis["body"]["shoulder_cm"]["source"] == "estimated"
         assert body["recommendations"][0]["id"] == "soft-tailoring"
-        direct = client.get(f"/api/outfits?asset_id={mesh}")
-        assert direct.json()["source"] == "model"
-        assert direct.json()["analysis"]["labels"]["pose"] == "未记录"
+        # The upload was temporary: it is gone as soon as the answer is out.
+        assert client.get(f"/api/assets/{mesh}").status_code == 404
 
 
-def test_outfits_endpoint_survives_a_broken_mesh(settings):
+def test_recommend_endpoint_marks_an_unrecorded_pose(settings):
     with client_for(settings) as client:
         store = client.app.state.store
         owner = client.app.state.merchants.merchant_by_name("model-tester")["id"]
-        job = job_with_mesh(store, add_mesh(store, b"glTF but not really", owner=owner),
-                            owner=owner)
-        body = client.get(f"/api/outfits?job_id={job['id']}").json()
+        mesh = add_mesh(store, glb_bytes(), owner=owner)
+        body = client.post("/api/outfits/recommend", json={"asset_id": mesh}).json()
+        assert body["analysis"]["labels"]["pose"] == "未记录"
+        assert any("任务未记录姿态" in note for note in body["analysis"]["notes"])
+
+
+def test_recommend_endpoint_survives_a_broken_mesh(settings):
+    with client_for(settings) as client:
+        store = client.app.state.store
+        owner = client.app.state.merchants.merchant_by_name("model-tester")["id"]
+        mesh = add_mesh(store, b"glTF but not really", owner=owner)
+        body = client.post("/api/outfits/recommend", json={"asset_id": mesh}).json()
         assert body["source"] == "default"
         assert body["analysis"]["available"] is False
         assert len(body["recommendations"]) == 6
+
+
+def test_recommend_endpoint_refuses_an_expired_upload(settings):
+    with client_for(settings) as client:
+        assert client.post("/api/outfits/recommend",
+                           json={"asset_id": "0" * 32}).status_code == 404
+        assert client.post("/api/outfits/recommend",
+                           json={"asset_id": "missing"}).status_code == 422
+        assert client.post("/api/outfits/recommend",
+                           json={"pose_mode": "sitting"}).status_code == 422
 
 
 def test_outfits_endpoint_is_deterministic_and_ignores_filters_in_counts(settings):

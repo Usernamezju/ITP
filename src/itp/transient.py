@@ -268,8 +268,11 @@ class TransientDocuments:
                 reverse=True,
             )
 
-    def for_job(self, job_id):
-        return [i for i in self.list() if i.get("source_job_id") == job_id]
+    def for_mesh(self, mesh_asset, owner_id=None):
+        return [
+            i for i in self.list(owner_id)
+            if i.get("mesh_asset") == mesh_asset
+        ]
 
     def active(self):
         return [i for i in self.list() if i["state"] in {"queued", "running", "submitting"}]

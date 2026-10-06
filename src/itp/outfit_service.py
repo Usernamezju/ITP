@@ -220,27 +220,26 @@ def recommend(
     store: Any,
     merchants: MerchantStore | None,
     *,
-    job_id: str | None = None,
     asset_id: str | None = None,
     style: str | None = None,
     season: str | None = None,
     occasion: str | None = None,
     limit: int = 6,
     body_profile: dict | None = None,
-    use_stored_profile: bool = True,
+    pose_mode: str | None = None,
 ) -> dict[str, Any]:
-    """Assemble the whole ``GET /api/outfits`` body, measurements first.
+    """Assemble a recommendation body from one temporary model and measurement set.
 
+    ``body_profile`` carries the numbers the customer typed; nothing is read from
+    a store, so an anonymous caller can only ever score what it just sent.
     ``source`` keeps its original meaning (whether a model was analysed); where
     each recommendation came from is carried per item as ``origin``.
     """
     report = wardrobe.outfit_report(
-        store, job_id=job_id, asset_id=asset_id, style=style, season=season,
-        occasion=occasion, limit=limit,
+        store, asset_id=asset_id, style=style, season=season,
+        occasion=occasion, limit=limit, pose_mode=pose_mode,
     )
     profile = body_profile
-    if profile is None and use_stored_profile and merchants:
-        profile = merchants.body_profile(job_id)
     inputs = body_inputs(profile, report["analysis"])
     report["analysis"]["body"] = normalize_body(inputs)
     if not merchants:

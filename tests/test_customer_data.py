@@ -221,27 +221,21 @@ def test_face_refinement_asset_leaves_the_server_after_acknowledgment(settings):
         mesh_id, mesh_path = store.new_asset_path("glb")
         mesh_path.write_bytes(face_glb())
         store.add_asset(mesh_id, mesh_path, "model", format="GLB", owner_id=owner)
-        source = store.create_job({"name": "模型", "front": "f" * 32}, owner_id=owner)
-        source["state"] = "succeeded"
-        source["artifacts"].append(
-            {"asset_id": mesh_id, "stage": "geometry", "format": "GLB", "index": 0}
-        )
-        store.save_job(source)
         photo = client.post(
             "/api/face-photos", files={"file": ("photo.jpg", highres_photo())}
         ).json()
         created = client.post(
-            f"/api/jobs/{source['id']}/face-refinement", json={"face_photo": photo["id"]}
+            "/api/face-refinements", json={"mesh": mesh_id, "face_photo": photo["id"]}
         )
         assert created.status_code == 201, created.text
         item = created.json()
         app.state.face_worker.run_job(item)
-        ready = client.get(f"/api/jobs/{source['id']}/face-refinement").json()[0]
+        ready = client.get(f"/api/face-refinements/{item['id']}").json()
         assert ready["state"] == "ready"
         result = ready["result_asset"]
         assert client.get(f"/api/assets/{result}/file").status_code == 200
         assert client.post(f"/api/face-refinements/{item['id']}/acknowledge").status_code == 204
-        assert client.get(f"/api/jobs/{source['id']}/face-refinement").json() == []
+        assert client.get(f"/api/face-refinements/{item['id']}").status_code == 404
         assert client.get(f"/api/assets/{result}/file").status_code == 404
 
 

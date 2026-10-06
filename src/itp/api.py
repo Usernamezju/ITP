@@ -80,9 +80,9 @@ from itp.provider_settings import (
 from itp.private_jobs import PrivateFaceStore, PrivateTryOnStore
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
-from itp.tryon import VIEWS, TryOnRequest, TryOnWorker
+from itp.tryon import TryOnRequest, TryOnWorker
 from itp.transient import TransientStore
-from itp.wardrobe import CATALOG, DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT
+from itp.wardrobe import CATALOG, DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, POSE_LABELS
 
 
 class ReviewRequest(BaseModel):
@@ -99,11 +99,12 @@ class OutfitRecommendRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    asset_id: str | None = None
+    asset_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     measurements: dict[str, Any] | None = None
     style: str | None = None
     season: str | None = None
     occasion: str | None = None
+    pose_mode: str | None = None
     limit: int = Field(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT)
 
 
@@ -784,22 +785,6 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
-    @app.post("/api/tryons/{tryon_id}/continue", status_code=201)
-    def continue_tryon(tryon_id: str, http_request: Request, user: dict = Depends(current_user)):
-        tryon = tryons.get(tryon_id)
-        if not tryon or tryon.get("owner_id") != user["id"]:
-            raise HTTPException(404, "试穿任务不存在")
-        if tryon["state"] != "ready" or set(tryon["results"]) != set(VIEWS):
-            raise HTTPException(409, "六张试穿结果尚未生成完成")
-        current = app.state.settings
-        if not current.geometry_ready:
-            raise HTTPException(503, "平台人体建模服务暂不可用，请稍后再试")
-        results = tryon["results"]
-        request = JobRequest(name=tryon["name"], front=results["front"],
-                             views={view: results[view] for view in VIEWS if view != "front"},
-                             views_consistent_confirmed=True)
-        return create_job(request, http_request, user)
-
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, user: dict = Depends(current_user)):
         return public_job(owned_job(job_id, user))
@@ -810,32 +795,37 @@ def create_app(
             raise HTTPException(404, "任务不存在")
         return job
 
-    @app.get("/api/jobs/{job_id}/face-refinement")
-    def get_face_refinements(job_id: str, user: dict = Depends(current_user)):
-        owned_job(job_id, user)
-        return face_jobs.for_job(job_id)
+    @app.get("/api/face-refinements/{item_id}")
+    def get_face_refinement(item_id: str, user: dict = Depends(current_user)):
+        item = face_jobs.get(item_id)
+        if not item or item.get("owner_id") != user["id"]:
+            raise HTTPException(404, "脸部精修任务不存在")
+        return item
 
-    @app.post("/api/jobs/{job_id}/face-refinement", status_code=201)
-    def create_face_refinement(job_id: str, body: FaceRefineRequest, user: dict = Depends(current_user)):
-        source = owned_job(job_id, user)
-        if source["state"] != "succeeded":
-            raise HTTPException(409, "请等待 3D 模型生成完成")
+    @app.post("/api/face-refinements", status_code=201)
+    def create_face_refinement(body: FaceRefineRequest, user: dict = Depends(current_user)):
+        """Refine a model the browser handed back for this one run.
+
+        The mesh and the photo are temporary uploads: the browser kept the model
+        it generated, and hands it in again whenever a refinement is wanted.
+        """
+        mesh = owned_asset(body.mesh, user)
+        if mesh["kind"] != "model" or mesh.get("format") != "GLB" or not valid_glb(
+            store.read(body.mesh)
+        ):
+            raise HTTPException(422, "请上传有效的 GLB 模型文件")
         photo = owned_asset(body.face_photo, user)
-        if not photo or photo["kind"] != "face_photo" or not store.path(body.face_photo).is_file():
+        if photo["kind"] != "face_photo" or not store.path(body.face_photo).is_file():
             raise HTTPException(422, "请上传原始高清正面人物照片")
         if not app.state.settings.faceverse_ready:
             raise HTTPException(503, "平台脸部精修服务暂不可用，请稍后再试")
-        meshes = [artifact for artifact in source["artifacts"]
-                  if artifact["format"] == "GLB" and artifact["stage"] != "face_refine"]
-        if not meshes:
-            raise HTTPException(409, "当前任务尚无可精修的 GLB 模型")
         with face_lock:
             if any(item["state"] in {"queued", "running", "submitting"}
-                   for item in face_jobs.for_job(job_id)):
+                   for item in face_jobs.for_mesh(body.mesh, user["id"])):
                 raise HTTPException(409, "该模型已有进行中的脸部精修任务")
-            item = face_jobs.create(job_id, body.face_photo, meshes[-1]["asset_id"],
+            item = face_jobs.create(body.mesh, body.face_photo,
                                     app.state.settings.faceverse_model, user["id"])
-            store.pin(item["id"], user["id"], [body.face_photo, meshes[-1]["asset_id"]])
+            store.pin(item["id"], user["id"], [body.mesh, body.face_photo])
             return item
 
     @app.post("/api/jobs/{job_id}/review")
@@ -856,22 +846,17 @@ def create_app(
 
     @app.get("/api/outfits")
     def list_outfits(
-        job_id: str | None = Query(None),
-        asset_id: str | None = Query(None),
         style: str | None = Query(None),
         season: str | None = Query(None),
         occasion: str | None = Query(None),
         limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
     ):
-        # Wardrobe advice never fails: an unknown, unreadable or unsupported
-        # model degrades to the generic catalogue instead of raising.  Published
-        # merchant items are scored against the body's size ranges first; the
-        # built-in catalogue only answers when there is nothing published yet.
+        # The public catalogue, with no customer data in it at all: published
+        # merchant items are ranked as generic body advice.  Scoring against a
+        # real body happens on /api/outfits/recommend, owner by owner.
         return recommend_outfits(
             store,
             merchants,
-            job_id=job_id,
-            asset_id=asset_id,
             style=style,
             season=season,
             occasion=occasion,
@@ -885,6 +870,8 @@ def create_app(
         The measurements and the model exist only for this request: the file is
         deleted once the calculation finishes, whatever the outcome.
         """
+        if body.pose_mode and body.pose_mode not in POSE_LABELS:
+            raise HTTPException(422, "未知的姿势类型")
         if body.asset_id:
             asset = owned_asset(body.asset_id, user)
             if asset["kind"] != "model" or not store.path(body.asset_id).is_file():
@@ -905,7 +892,7 @@ def create_app(
                 occasion=body.occasion,
                 limit=body.limit,
                 body_profile=measurements,
-                use_stored_profile=False,
+                pose_mode=body.pose_mode,
             )
         finally:
             if body.asset_id:

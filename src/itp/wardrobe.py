@@ -1058,7 +1058,6 @@ def analysis_document(
     geometry: dict[str, Any] | None,
     *,
     pose_mode: str | None = None,
-    reference_size: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Build the ``analysis`` object of the response, available or not."""
     if not geometry:
@@ -1078,11 +1077,6 @@ def analysis_document(
     notes = list(geometry["notes"])
     if pose_mode not in POSE_LABELS:
         notes.append("任务未记录姿态，指标按常规站姿解读。")
-    if reference_size:
-        notes.append(
-            f"参考图 {reference_size[0]}×{reference_size[1]} 像素，仅作输入记录，"
-            "不参与体型计算。"
-        )
     return {
         "available": True,
         "method": METHOD,
@@ -1207,84 +1201,28 @@ def _reason(outfit: dict[str, Any], tags: dict[str, str]) -> str:
 def outfit_report(
     store: Store,
     *,
-    job_id: str | None = None,
     asset_id: str | None = None,
     style: str | None = None,
     season: str | None = None,
     occasion: str | None = None,
     limit: int = DEFAULT_LIMIT,
+    pose_mode: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the whole ``GET /api/outfits`` body.
 
-    An explicit ``asset_id`` wins over the mesh a ``job_id`` would supply, while
-    the job still provides the pose label and the reference image note.  Any
-    unknown, unreadable or unsupported model yields ``source: "default"``
-    instead of an error.
+    The GLB has to be handed in by the caller for this one calculation; the
+    server keeps no customer model of its own.  Any unknown, unreadable or
+    unsupported model yields ``source: "default"`` instead of an error.
     """
-    path, pose_mode, reference_size = _resolve(store, job_id, asset_id)
-    geometry = analyze_glb(path)
+    geometry = analyze_glb(_asset_mesh(store, asset_id) if asset_id else None)
     return {
         "source": "model" if geometry else "default",
-        "analysis": analysis_document(
-            geometry, pose_mode=pose_mode, reference_size=reference_size
-        ),
+        "analysis": analysis_document(geometry, pose_mode=pose_mode),
         "filters": catalog_filters(),
         "recommendations": recommend_outfits(
             geometry, style=style, season=season, occasion=occasion, limit=limit
         ),
     }
-
-
-def _resolve(
-    store: Store, job_id: str | None, asset_id: str | None
-) -> tuple[Path | None, str | None, tuple[int, int] | None]:
-    """Find the GLB to analyse plus its pose label and reference image size."""
-    pose_mode = None
-    reference_size = None
-    path = None
-    try:
-        job = store.job(job_id) if job_id else None
-        if job:
-            pose_mode = _pose_mode(job)
-            reference_size = _reference_size(store, job)
-        if asset_id:
-            path = _asset_mesh(store, asset_id)
-        if path is None and job:
-            path = _job_mesh(store, job)
-    except Exception:
-        return None, pose_mode, reference_size
-    return path, pose_mode, reference_size
-
-
-def _pose_mode(job: dict[str, Any]) -> str | None:
-    request = job.get("request")
-    mode = request.get("pose_mode") if isinstance(request, dict) else None
-    return mode if mode in POSE_LABELS else None
-
-
-def _reference_size(store: Store, job: dict[str, Any]) -> tuple[int, int] | None:
-    request = job.get("request")
-    front = request.get("front") if isinstance(request, dict) else None
-    asset = store.asset(front) if isinstance(front, str) else None
-    if not asset:
-        return None
-    width, height = asset.get("width"), asset.get("height")
-    if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0:
-        return width, height
-    return None
-
-
-def _job_mesh(store: Store, job: dict[str, Any]) -> Path | None:
-    """Latest GLB artifact of the job, newest first."""
-    artifacts = job.get("artifacts")
-    if not isinstance(artifacts, list):
-        return None
-    for artifact in reversed(artifacts):
-        if isinstance(artifact, dict) and artifact.get("format") == "GLB":
-            path = _asset_mesh(store, artifact.get("asset_id"))
-            if path is not None:
-                return path
-    return None
 
 
 def _asset_mesh(store: Store, asset_id: Any) -> Path | None:

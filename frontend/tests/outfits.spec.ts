@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
+import { triangleGlb } from './fixtures';
+
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=', 'base64');
 
@@ -93,6 +95,17 @@ async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], imag
       await route.fulfill({ json: { id: 'outfits-user', name: 'outfits', display_name: 'Outfits', role: 'customer', contact: '', created: 1 } });
     } else if (pathname === '/api/jobs') {
       await route.fulfill({ json: jobs });
+    } else if (/^\/api\/assets\/[a-f0-9]{32}\/file$/.test(pathname)) {
+      await route.fulfill({ body: triangleGlb(), contentType: 'model/gltf-binary' });
+    } else if (/^\/api\/assets\/[a-f0-9]{32}$/.test(pathname)) {
+      await route.fulfill({ json: { id: pathname.split('/').pop(), url: '', kind: 'model',
+        size: 100, format: 'GLB' } });
+    } else if (pathname === '/api/model-assets' && request.method() === 'POST') {
+      // The model is uploaded for one recommendation and deleted again.
+      await route.fulfill({ status: 201, json: { id: 'd'.repeat(32), url: '', kind: 'model',
+        size: 100, format: 'GLB' } });
+    } else if (/^\/api\/jobs\/[a-f0-9]{32}\/acknowledge$/.test(pathname)) {
+      await route.fulfill({ status: 204, body: '' });
     } else if (pathname === '/') {
       await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     } else if (pathname.startsWith('/assets/')) {
@@ -104,11 +117,15 @@ async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], imag
       await route.fulfill({ status: 404 });
     }
   });
+  // Registered after the catch-all, so these win for their own paths.
+  await page.route('**/api/outfits/recommend', async (route) => {
+    requests.push(JSON.stringify(route.request().postDataJSON()));
+    await route.fulfill({ json: body });
+  });
   await page.route('**/api/outfits?*', async (route) => {
     requests.push(new URL(route.request().url()).search);
     await route.fulfill({ json: body });
   });
-  // Registered last, so the more specific paths win over the two routes above.
   await page.route('**/api/outfits/*/images*', async (route) => {
     requests.push(new URL(route.request().url()).search);
     await route.fulfill({ json: images });
@@ -244,7 +261,7 @@ test('without a model the page still recommends and points at modeling', async (
   await expect(page.getByRole('heading', { name: '从一张图，到一个世界' })).toBeVisible();
 });
 
-test('filtering and the model source reach the outfits endpoint', async ({ page }) => {
+test('the browser offers its own model and filters to the recommend endpoint', async ({ page }) => {
   const job = {
     id: 'a'.repeat(32), name: '比例测试', state: 'succeeded', created: 1790671818, error: null,
     request: { front: 'b'.repeat(32), pose_mode: 't-pose', topology: false, texture: true,
@@ -252,10 +269,18 @@ test('filtering and the model source reach the outfits endpoint', async ({ page 
     pose_asset: null, steps: [], artifacts: [{ asset_id: 'c'.repeat(32), stage: 'geometry', format: 'GLB', index: 0 }],
   };
   const requests = await openOutfits(page, analysisPayload(true), [job]);
-  await expect.poll(() => requests.some((query) => query.includes(`job_id=${job.id}`))).toBe(true);
+  // The task is mirrored into this browser first: that copy is what the
+  // recommendation page later uploads, one run at a time.
+  await page.getByRole('button', { name: '任务记录' }).click();
+  await expect(page.getByRole('button', { name: /比例测试/ })).toBeVisible();
+  await page.getByRole('button', { name: '穿搭推荐' }).click();
+  await expect.poll(() => requests.some((body) => body.includes(`"asset_id":"${'d'.repeat(32)}"`)))
+    .toBe(true);
+  const scored = requests.find((body) => body.includes('asset_id'))!;
+  expect(JSON.parse(scored).pose_mode).toBe('t-pose');
   await page.locator('.outfits-filter').filter({ hasText: '风格' })
     .getByRole('button', { name: /通勤/ }).click();
-  await expect.poll(() => requests.some((query) => query.includes('style='))).toBe(true);
+  await expect.poll(() => requests.some((body) => body.includes('"style":"通勤"'))).toBe(true);
   await page.getByRole('button', { name: '查看全部套装' }).click();
-  await expect.poll(() => requests.some((query) => query.includes('limit=24'))).toBe(true);
+  await expect.poll(() => requests.some((body) => body.includes('"limit":24'))).toBe(true);
 });

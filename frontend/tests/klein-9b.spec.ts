@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
+import { imageFromCanvas } from './fixtures';
+
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const caps = {
   geometry: false, pose: false, segmentation: false, tryon: false, tryon_model: '',
@@ -23,6 +25,8 @@ async function serveBundle(page: Page) {
         contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript' });
     } else if (pathname === '/api/capabilities') {
       await route.fulfill({ json: caps });
+    } else if (pathname === '/api/assets' && route.request().method() === 'POST') {
+      await route.fulfill({ status: 201, json: { id: 'd'.repeat(32), url: '', kind: 'image', size: 100 } });
     } else if (pathname === '/api/jobs' || pathname === '/api/tryons') {
       await route.fulfill({ json: [] });
     } else {
@@ -41,11 +45,6 @@ test('Klein selection uses independent health and submits the 9B provider', asyn
     await pendingHealth;
     await route.fulfill({ json: { ready: true, model: 'flux.2-klein-9b' } });
   });
-  const asset = { id: 'a'.repeat(32), url: '', kind: 'image', size: 100 };
-  await page.addInitScript((value) => {
-    sessionStorage.setItem('itp-tryon-person', JSON.stringify({ front: value }));
-    sessionStorage.setItem('itp-tryon-garment', JSON.stringify({ front: value }));
-  }, asset);
   let submitted: Record<string, unknown> | undefined;
   await page.route('**/api/tryons', async (route) => {
     if (route.request().method() === 'POST') {
@@ -58,6 +57,11 @@ test('Klein selection uses independent health and submits the 9B provider', asyn
   });
   await page.goto('/');
   await page.getByRole('button', { name: '虚拟试穿', exact: true }).click();
+  const image = await imageFromCanvas(page);
+  const upload = page.getByLabel('上传正面');
+  await upload.first().setInputFiles({ name: 'person.png', mimeType: 'image/png', buffer: image });
+  await upload.last().setInputFiles({ name: 'garment.png', mimeType: 'image/png', buffer: image });
+  await expect(page.getByAltText('正面')).toHaveCount(2);
   const picker = page.locator('select:visible').first();
   const generate = page.getByRole('button', { name: '生成六视图试穿' });
   await picker.selectOption('flux_klein');
@@ -68,8 +72,8 @@ test('Klein selection uses independent health and submits the 9B provider', asyn
   await expect(generate).toBeEnabled();
   await generate.click();
   await expect.poll(() => submitted?.provider).toBe('flux_klein_9b');
-  expect(submitted?.person).toEqual({ front: asset.id });
-  expect(submitted?.garment).toEqual({ front: asset.id });
+  expect(submitted?.person).toEqual({ front: 'd'.repeat(32) });
+  expect(submitted?.garment).toEqual({ front: 'd'.repeat(32) });
 });
 
 test('9B unavailable service never asks the customer for an endpoint or token', async ({ page }) => {

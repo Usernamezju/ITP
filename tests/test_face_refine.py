@@ -56,42 +56,45 @@ def test_highres_face_photo_and_refinement_workflow(settings):
         mesh_id, mesh_path = store.new_asset_path("glb")
         mesh_path.write_bytes(glb_bytes())
         store.add_asset(mesh_id, mesh_path, "model", format="GLB", owner_id=owner)
-        source = store.create_job({"name": "模型", "front": "f" * 32}, owner_id=owner)
-        source["state"] = "succeeded"
-        source["artifacts"].append(
-            {
-                "asset_id": mesh_id,
-                "stage": "geometry",
-                "format": "GLB",
-                "index": 0,
-            }
-        )
-        store.save_job(source)
         uploaded = client.post("/api/face-photos", files={"file": ("photo.jpg", highres_photo())})
         assert uploaded.status_code == 201, uploaded.text
         photo = uploaded.json()
         assert (photo["width"], photo["height"]) == (2048, 1536)
-        created = client.post(
-            f"/api/jobs/{source['id']}/face-refinement", json={"face_photo": photo["id"]}
-        )
+        body = {"mesh": mesh_id, "face_photo": photo["id"]}
+        created = client.post("/api/face-refinements", json=body)
         assert created.status_code == 201, created.text
         item = created.json()
-        assert (
-            client.post(
-                f"/api/jobs/{source['id']}/face-refinement", json={"face_photo": photo["id"]}
-            ).status_code
-            == 409
-        )
+        assert item["mesh_asset"] == mesh_id
+        # One run per model at a time.
+        assert client.post("/api/face-refinements", json=body).status_code == 409
         app.state.face_worker.run_job(item)
-        ready = client.get(f"/api/jobs/{source['id']}/face-refinement").json()[0]
+        ready = client.get(f"/api/face-refinements/{item['id']}").json()
         assert ready["state"] == "ready"
         assert ready["report"] == report
         assert calls[0][2] == "faceverse-v4"
         assert client.get(f"/api/assets/{ready['result_asset']}/file").content == glb_bytes()
-        artifacts = client.get(f"/api/jobs/{source['id']}").json()["artifacts"]
-        assert artifacts[0]["asset_id"] == mesh_id
-        assert artifacts[-1]["asset_id"] == ready["result_asset"]
-        assert artifacts[-1]["stage"] == "face_refine"
+        # The browser saved the refined model locally and lets go of both inputs.
+        assert client.post(f"/api/face-refinements/{item['id']}/acknowledge").status_code == 204
+        assert client.get(f"/api/face-refinements/{item['id']}").status_code == 404
+        for asset_id in (mesh_id, photo["id"], ready["result_asset"]):
+            assert client.get(f"/api/assets/{asset_id}").status_code == 404
+
+
+def test_face_refinement_refuses_inputs_that_are_not_a_model_and_a_photo(settings, image_bytes):
+    app = create_app(face_settings(settings), start_worker=False)
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        fund_client(client)
+        picture = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
+        uploaded = client.post("/api/face-photos",
+                               files={"file": ("photo.jpg", highres_photo())}).json()
+        for body in (
+            {"mesh": picture["id"], "face_photo": uploaded["id"]},
+            {"mesh": "0" * 32, "face_photo": uploaded["id"]},
+            {"mesh": "0" * 32, "face_photo": picture["id"]},
+            {"mesh": picture["id"]},
+        ):
+            response = client.post("/api/face-refinements", json=body)
+            assert response.status_code in {404, 422}, response.text
 
 
 def test_faceverse_provider_contract_and_secret(tmp_path, settings):

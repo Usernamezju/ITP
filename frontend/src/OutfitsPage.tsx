@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Box, Check, ChevronDown, Clock3, Layers3, LoaderCircle, RefreshCw,
   RotateCcw, Ruler, Sparkles, Unplug, X } from 'lucide-react';
-import { api, type BodyAnalysis, type BodyField, type BodyValue, type Capabilities, type Job,
-  type Outfit, type OutfitFilterOption, type OutfitImages, type OutfitResponse } from './api';
+import { ApiError, api, post, type BodyAnalysis, type BodyField, type BodyValue,
+  type Capabilities, type Outfit, type OutfitFilterOption, type OutfitImages,
+  type OutfitResponse } from './api';
+import { localAssets, localRecords, localValue } from './localData';
+import { sessionToken } from './session';
+import { uploadLocal, type LocalJob } from './transient';
 import { LookBoard } from './LookBoard';
 import './OutfitsPage.css';
 
@@ -280,12 +284,16 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
   </div>;
 }
 
-export function OutfitsPage({ caps, jobs, onModeling }: {
-  caps: Capabilities | null; jobs: Job[]; onModeling: () => void;
+/** One model this browser can be scored against, from a task or an import. */
+type LocalModel = { id: string; name: string; created?: number; pose_mode?: string };
+
+type BodyProfile = Partial<Record<BodyField, number | null>>;
+const PROFILE_KEY = 'body-profile';
+
+export function OutfitsPage({ caps, ready, onModeling }: {
+  caps: Capabilities | null; ready: boolean; onModeling: () => void;
 }) {
-  const modelJobs = useMemo(
-    () => jobs.filter((item) => item.artifacts.some((artifact) => artifact.format === 'GLB')),
-    [jobs]);
+  const [local, setLocal] = useState<{ models: LocalModel[]; profile: BodyProfile } | null>(null);
   const [source, setSource] = useState('');
   const [style, setStyle] = useState('');
   const [season, setSeason] = useState('');
@@ -297,34 +305,68 @@ export function OutfitsPage({ caps, jobs, onModeling }: {
   const [limit, setLimit] = useState(6);
   const [reload, setReload] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
-  const picked = useRef(false);
 
-  // Adopt the newest model once, then let the choice stay under user control.
+  // The models and the numbers are this browser's own; read them back once the
+  // local store has loaded, never from the server.
   useEffect(() => {
-    if (picked.current || !modelJobs.length) return;
-    picked.current = true;
-    setSource(modelJobs[0].id);
-  }, [modelJobs]);
+    if (!ready) return;
+    let active = true;
+    void (async () => {
+      const saved = await localRecords<LocalJob>('job:');
+      const models: LocalModel[] = saved
+        .sort((left, right) => right.created - left.created)
+        .flatMap((job) => {
+          const glb = job.artifacts.filter((item) => item.format === 'GLB').at(-1);
+          return glb ? [{ id: glb.id, name: job.name, created: job.created,
+            pose_mode: job.request.pose_mode as string }] : [];
+        });
+      const known = new Set(models.map((item) => item.id));
+      for (const asset of await localAssets('model')) {
+        if (!known.has(asset.id)) models.push({ id: asset.id, name: asset.name || '本地模型' });
+      }
+      if (!active) return;
+      setLocal({ models, profile: localValue<BodyProfile>(PROFILE_KEY, {}) });
+      setSource((current) => current || models[0]?.id || '');
+    })().catch((err) => { if (active) setError((err as Error).message); });
+    return () => { active = false; };
+  }, [ready]);
 
-  const query = useMemo(() => {
-    const search = new URLSearchParams();
-    if (source) search.set('job_id', source);
-    if (style) search.set('style', style);
-    if (season) search.set('season', season);
-    if (occasion) search.set('occasion', occasion);
-    search.set('limit', String(limit));
-    return search.toString();
-  }, [source, style, season, occasion, limit]);
+  const modelJobs = local?.models || [];
 
   useEffect(() => {
+    if (!local) return;
     let cancelled = false;
     setLoading(true); setError('');
-    void api<OutfitResponse>(`/api/outfits?${query}`)
+    const measurements = Object.fromEntries(Object.entries(local.profile)
+      .filter(([, value]) => typeof value === 'number'));
+    const filters = { style: style || undefined, season: season || undefined,
+      occasion: occasion || undefined, limit };
+    // A signed-in browser scores against its own model and numbers: both are
+    // uploaded for this one run and the server deletes its copies immediately.
+    // Everyone else reads the published catalogue.
+    const request = sessionToken.read()
+      ? uploadLocal(source).then((asset) => post<OutfitResponse>('/api/outfits/recommend', {
+        asset_id: asset.id,
+        measurements: Object.keys(measurements).length ? measurements : undefined,
+        pose_mode: modelJobs.find((item) => item.id === source)?.pose_mode,
+        ...filters,
+      })).catch((err) => {
+        // An expired sign-in still gets catalogue advice instead of nothing.
+        if (!(err instanceof ApiError) || err.status !== 401) throw err;
+        return api<OutfitResponse>(`/api/outfits?limit=${limit}`);
+      })
+      : api<OutfitResponse>(`/api/outfits?${new URLSearchParams({
+        ...(filters.style ? { style: filters.style } : {}),
+        ...(filters.season ? { season: filters.season } : {}),
+        ...(filters.occasion ? { occasion: filters.occasion } : {}),
+        limit: String(limit),
+      })}`);
+    void request
       .then((result) => { if (!cancelled) setData(result); })
       .catch((err) => { if (!cancelled) setError((err as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [query, reload]);
+  }, [local, source, style, season, occasion, limit, reload]);
 
   useEffect(() => {
     if (detail && !dialog.current?.open) dialog.current?.showModal();
@@ -345,13 +387,13 @@ export function OutfitsPage({ caps, jobs, onModeling }: {
             onChange={(event) => setSource(event.target.value)}>
             <option value="">不使用三维模型 · 通用推荐</option>
             {modelJobs.map((item) => <option key={item.id} value={item.id}>
-              {item.name} · {new Date(item.created * 1000).toLocaleDateString('zh-CN')}
+              {item.name}{item.created ? ` · ${new Date(item.created * 1000).toLocaleDateString('zh-CN')}` : ''}
             </option>)}
           </select>
           <ChevronDown size={15} aria-hidden="true" />
         </div>
         <p className="outfits-control-hint">
-          {source ? '解析该任务最新的 GLB 产物，估算肩宽、腰线、胯宽与腿身比。'
+          {source ? '本次推荐会临时上传这个 GLB，算完立即删除；肩宽、腰线、胯宽与腿身比由此估算。'
             : '还没有三维模型也可以推荐；生成模型后推荐会更贴合你的比例。'}
         </p>
         <div className="divider" />
@@ -422,7 +464,7 @@ export function OutfitsPage({ caps, jobs, onModeling }: {
           className={source === item.id ? 'active' : ''} onClick={() => setSource(item.id)}>
           <span>{source === item.id ? <Check size={13} /> : <Clock3 size={13} />}</span>
           <b>{item.name}</b>
-          <small>{new Date(item.created * 1000).toLocaleDateString('zh-CN')}</small>
+          <small>{item.created ? new Date(item.created * 1000).toLocaleDateString('zh-CN') : '本机导入'}</small>
         </button>)}
       </div> : <div className="outfits-inspector-empty"><Box size={22} strokeWidth={1.3} />
         <span>还没有三维模型</span><small>生成后可基于实测比例推荐</small></div>}

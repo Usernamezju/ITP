@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronRight, Clock3, Download, ImagePlus, LoaderCircle, Shirt, Sparkles, X, ZoomIn } from 'lucide-react';
-import { api, fileUrl, post, type Asset, type Capabilities, type Job, type TryOnJob, type TryOnProvider } from './api';
+import { api, post, type Asset, type Capabilities, type Job, type TryOnJob, type TryOnProvider } from './api';
+import { importLocalImage, localAsset, localFileUrl, localRecords } from './localData';
+import { sessionToken } from './session';
+import { TERMINAL, acknowledge, saveJob, saveTryOn, uploadEach, type LocalJob, type LocalTryOn } from './transient';
 import './TryOnPage.css';
 import './TryOnWorkspace.css';
 
@@ -25,11 +28,10 @@ function ImageInput({ label, index, asset, onChange, onBusy, onPreview }: {
   const [error, setError] = useState('');
   async function upload(file?: File) {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { setError('图片不能超过 10 MiB'); return; }
     setBusy(true); onBusy(true); setError('');
     try {
-      const body = new FormData(); body.append('file', file);
-      onChange(await api<Asset>('/api/assets', { method: 'POST', body }));
+      // Kept in this browser; only starting a try-on uploads a temporary copy.
+      onChange(await importLocalImage(file, 'image'));
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); onBusy(false); }
   }
@@ -43,19 +45,25 @@ function ImageInput({ label, index, asset, onChange, onBusy, onPreview }: {
     {error && <small className="tryon-input-error" role="alert">{error}</small>}</div>;
 }
 
-export function TryOnPage({ caps, onContinue }: {
-  caps: Capabilities | null; onContinue: (job: Job) => void;
+/** The pictures chosen for one try-on, rebuilt from this browser's own store. */
+function restoreSelection(key: string): Record<string, Asset> {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(key) || '{}') as Record<string, string>;
+    return Object.fromEntries(Object.entries(saved)
+      .map(([view, id]) => [view, localAsset(id)] as const)
+      .filter((entry): entry is [string, Asset] => Boolean(entry[1])));
+  } catch { return {}; }
+}
+
+export function TryOnPage({ caps, ready, onContinue }: {
+  caps: Capabilities | null; ready: boolean; onContinue: (job: LocalJob) => void;
 }) {
-  const [person, setPerson] = useState<Record<string, Asset>>(() => {
-    try { return JSON.parse(sessionStorage.getItem('itp-tryon-person') || '{}'); } catch { return {}; }
-  });
-  const [garment, setGarment] = useState<Record<string, Asset>>(() => {
-    try { return JSON.parse(sessionStorage.getItem('itp-tryon-garment') || '{}'); } catch { return {}; }
-  });
+  const [person, setPerson] = useState<Record<string, Asset>>({});
+  const [garment, setGarment] = useState<Record<string, Asset>>({});
   const [name, setName] = useState('');
   const [busyCount, setBusyCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [current, setCurrent] = useState<TryOnJob | null>(null);
+  const [current, setCurrent] = useState<LocalTryOn | null>(null);
   const [error, setError] = useState('');
   const [selectedView, setSelectedView] = useState<(typeof views)[number][0]>('front');
   const [provider, setProvider] = useState<Provider>('seedream');
@@ -68,21 +76,52 @@ export function TryOnPage({ caps, onContinue }: {
     if (!preview && previewDialog.current?.open) previewDialog.current.close();
   }, [preview]);
 
-  useEffect(() => { sessionStorage.setItem('itp-tryon-person', JSON.stringify(person)); }, [person]);
-  useEffect(() => { sessionStorage.setItem('itp-tryon-garment', JSON.stringify(garment)); }, [garment]);
   useEffect(() => {
-    void api<TryOnJob[]>('/api/tryons').then((list) => {
-      if (list.length) setCurrent((existing) => existing || list[0]);
-    }).catch(() => {});
-  }, []);
+    if (!ready) return;
+    setPerson(restoreSelection('itp-tryon-person'));
+    setGarment(restoreSelection('itp-tryon-garment'));
+  }, [ready]);
+  useEffect(() => {
+    // Only this browser's own ids are written, and only once the local store
+    // has been read back — otherwise the first render would erase the choice.
+    if (!ready) return;
+    sessionStorage.setItem('itp-tryon-person',
+      JSON.stringify(Object.fromEntries(Object.entries(person).map(([view, asset]) => [view, asset.id]))));
+  }, [person, ready]);
+  useEffect(() => {
+    if (!ready) return;
+    sessionStorage.setItem('itp-tryon-garment',
+      JSON.stringify(Object.fromEntries(Object.entries(garment).map(([view, asset]) => [view, asset.id]))));
+  }, [garment, ready]);
 
   useEffect(() => {
-    if (!current || !['queued', 'running', 'submitting'].includes(current.state)) return;
-    const timer = setInterval(() => {
-      void api<TryOnJob>(`/api/tryons/${current.id}`).then(setCurrent).catch((err) => setError((err as Error).message));
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [current?.id, current?.state]);
+    if (!ready) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const saved = await localRecords<LocalTryOn>('tryon:');
+        const merged = new Map(saved.map((item) => [item.id, item]));
+        if (sessionToken.read()) {
+          // Save the generated views here, then let the server delete its own.
+          for (const live of await api<TryOnJob[]>('/api/tryons')) {
+            const mirror = await saveTryOn(live);
+            merged.set(mirror.id, mirror);
+            if (TERMINAL.has(live.state)) await acknowledge('tryons', live.id);
+          }
+        }
+        if (stopped) return;
+        const list = [...merged.values()].reverse();
+        setCurrent((existing) => {
+          const newest = list.at(-1) ?? null;
+          return existing ? (merged.get(existing.id) ?? existing) : newest;
+        });
+      } catch (err) { if (!stopped) setError((err as Error).message); }
+      finally { if (!stopped) timer = setTimeout(refresh, 3000); }
+    }
+    void refresh();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [ready]);
 
   useEffect(() => {
     if (!['flux_klein', 'flux_klein_9b'].includes(provider) || !caps?.tryon_providers?.[provider]) {
@@ -118,20 +157,44 @@ export function TryOnPage({ caps, onContinue }: {
     if (!complete || busyCount || submitting) return;
     setSubmitting(true); setError('');
     try {
+      // Only a temporary copy of the chosen pictures goes to the server; this
+      // browser is where they live.
+      const chosen = [
+        ...views.filter(([view]) => person[view]).map(([view]) => person[view].id),
+        ...views.filter(([view]) => garment[view]).map(([view]) => garment[view].id),
+      ];
+      const uploaded = await uploadEach(chosen);
+      const personCount = views.filter(([view]) => person[view]).length;
       const job = await post<TryOnJob>('/api/tryons', {
         name: name.trim() || '虚拟试穿', provider,
-        person: Object.fromEntries(views.filter(([view]) => person[view]).map(([view]) => [view, person[view].id])),
-        garment: Object.fromEntries(views.filter(([view]) => garment[view]).map(([view]) => [view, garment[view].id])),
+        person: Object.fromEntries(views.filter(([view]) => person[view])
+          .map(([view], index) => [view, uploaded[index].id])),
+        garment: Object.fromEntries(views.filter(([view]) => garment[view])
+          .map(([view], index) => [view, uploaded[personCount + index].id])),
       });
-      setCurrent(job);
+      setCurrent(await saveTryOn(job));
     } catch (err) { setError((err as Error).message); }
     finally { setSubmitting(false); }
   }
   async function continue3D() {
-    if (!current) return;
+    if (!current || !Object.keys(current.results).length) return;
     setSubmitting(true); setError('');
-    try { onContinue(await post<Job>(`/api/tryons/${current.id}/continue`, {})); }
-    catch (err) { setError((err as Error).message); }
+    try {
+      // The generated views are already here; modelling re-uploads them for
+      // one run instead of the server remembering where they came from.
+      const entries = Object.entries(current.results);
+      const uploaded = await uploadEach(entries.map(([, id]) => id));
+      const ids = Object.fromEntries(entries.map(([view], index) => [view, uploaded[index].id]));
+      const front = views.find(([view]) => view === 'front' && ids[view])?.[0] ?? entries[0][0];
+      const created = await post<Job>('/api/jobs', {
+        name: current.name || '试穿建模',
+        front: ids[front],
+        views: Object.fromEntries(entries.filter(([view]) => view !== front)
+          .map(([view]) => [view, ids[view]])),
+        views_consistent_confirmed: true,
+      });
+      onContinue(await saveJob(created));
+    } catch (err) { setError((err as Error).message); }
     finally { setSubmitting(false); }
   }
 
@@ -164,14 +227,14 @@ export function TryOnPage({ caps, onContinue }: {
       <div className="tryon-stage-heading"><div><span className="live-dot" /><strong>{current?.name || name || '试穿预览'}</strong><span className="muted">/ 多视角工作场景</span></div>
         <span className={`tryon-state ${current?.state || 'empty'}`}>{current ? current.state === 'ready' ? '已完成' : current.state === 'failed' ? '生成失败' : running ? '正在生成' : '待处理' : '尚未生成'}</span></div>
       <div className={`tryon-viewport ${activeResult ? 'has-result' : ''}`}>
-        {activeResult ? <button className="tryon-stage-preview" type="button" aria-label={`放大查看${selectedLabel}结果`} onClick={() => setPreview({ url: fileUrl(activeResult), label: `换装结果 · ${selectedLabel}` })}><img src={fileUrl(activeResult)} alt={`换装后${selectedLabel}`} /><ZoomIn size={17} /></button> : <div className="tryon-viewport-empty"><span className="tryon-viewport-mark"><Shirt size={36} strokeWidth={1.1} /></span><h2>让想象，穿在身上</h2><p>上传人物和服装图片，预览结果将在这里呈现</p></div>}
-        <div className="tryon-viewport-bottom"><span>ITP STUDIO / IMAGE TO POSSIBILITY</span>{activeResult && <a href={`${fileUrl(activeResult)}?download=true`} aria-label={`保存${selectedLabel}结果`}><Download size={14} /> 保存当前视角</a>}</div>
+        {activeResult ? <button className="tryon-stage-preview" type="button" aria-label={`放大查看${selectedLabel}结果`} onClick={() => setPreview({ url: localFileUrl(activeResult)!, label: `换装结果 · ${selectedLabel}` })}><img src={localFileUrl(activeResult)} alt={`换装后${selectedLabel}`} /><ZoomIn size={17} /></button> : <div className="tryon-viewport-empty"><span className="tryon-viewport-mark"><Shirt size={36} strokeWidth={1.1} /></span><h2>让想象，穿在身上</h2><p>上传人物和服装图片，预览结果将在这里呈现</p></div>}
+        <div className="tryon-viewport-bottom"><span>ITP STUDIO / IMAGE TO POSSIBILITY</span>{activeResult && <a href={localFileUrl(activeResult)} download={`${current?.name || '试穿'}-${selectedLabel}.png`} aria-label={`保存${selectedLabel}结果`}><Download size={14} /> 保存当前视角</a>}</div>
       </div>
       <div className="tryon-pipeline"><span>生成流程</span><div><b className={complete ? 'done' : ''}>上传素材</b><ChevronRight size={13} /><b className={running || resultCount ? 'done' : ''}>六视图换装</b><ChevronRight size={13} /><b className={current?.state === 'ready' ? 'done' : ''}>保存 / 继续 3D</b></div></div>
       <section className="tryon-gallery"><div className="tryon-gallery-heading"><h3>换装结果 <span>{resultCount} / 6</span></h3><small>点击缩略图切换主预览</small></div>
         <div className="tryon-result-grid">{views.map(([view, label], index) => <div className={`tryon-result ${selectedView === view ? 'selected' : ''}`} key={view}>
-          <button type="button" aria-label={`预览${label}结果`} onClick={() => setSelectedView(view)}><span className="tryon-result-image">{current?.results[view] ? <img src={fileUrl(current.results[view])} alt={`换装后${label}`} /> : <ImagePlus size={21} strokeWidth={1.2} />}</span><span className="tryon-result-caption"><b>{String(index + 1).padStart(2, '0')}</b> {label}{current?.results[view] && <Check size={13} />}</span></button>
-          {current?.results[view] && <a href={`${fileUrl(current.results[view])}?download=true`} aria-label={`保存${label}`} title={`保存${label}`}><Download size={14} /></a>}
+          <button type="button" aria-label={`预览${label}结果`} onClick={() => setSelectedView(view)}><span className="tryon-result-image">{current?.results[view] ? <img src={localFileUrl(current.results[view])} alt={`换装后${label}`} /> : <ImagePlus size={21} strokeWidth={1.2} />}</span><span className="tryon-result-caption"><b>{String(index + 1).padStart(2, '0')}</b> {label}{current?.results[view] && <Check size={13} />}</span></button>
+          {current?.results[view] && <a href={localFileUrl(current.results[view])} download={`${current?.name || '试穿'}-${label}.png`} aria-label={`保存${label}`} title={`保存${label}`}><Download size={14} /></a>}
         </div>)}</div></section>
       {current?.state === 'ready' && <div className="tryon-next"><div><strong>六视图已生成</strong><p>检查身份、脸部、体型、服装和视角一致性。可逐张保存图片，或将结果直接送入 3D 建模。</p></div><button className="button" onClick={() => void continue3D()} disabled={submitting || !caps?.geometry}>继续生成 3D 模型 <ArrowRight size={16} /></button>
         {!caps?.geometry && <small>人体建模暂不可用，可先保存试穿图片。</small>}</div>}

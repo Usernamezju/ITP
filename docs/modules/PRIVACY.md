@@ -20,9 +20,8 @@ Blob URL 只在当前页面内有效，重新打开时从 IndexedDB 创建，不
 
 ## 迁移与当前状态
 
-本模块分基础设施及调用链切换两步提交。基础设施阶段不改变既有部署数据
-访问方式；只有完整切换资产/任务/推荐接口、浏览器调用及权限测试后，才能
-移除共享工作台 gate。具体完成状态见 `docs/PLAN.md`。
+本模块分三步提交：基础设施（`transient.py` 与 IndexedDB 原语）、服务端调用链
+切换、浏览器接线。三步均已完成，具体状态见 `docs/PLAN.md`。
 
 服务端调用链已切换：`POST /api/assets`、`/api/face-photos`、`/api/model-assets`
 直接写入 RAM 元数据并绑定账号；任务、试穿与脸部精修在结束时删除工作文件，
@@ -30,8 +29,16 @@ Blob URL 只在当前页面内有效，重新打开时从 IndexedDB 创建，不
 `/api/tryons/{id}/acknowledge`、`/api/face-refinements/{id}/acknowledge` 后连同
 任务记录一起删除。`POST /api/outfits/recommend` 接受浏览器当次上传的 GLB 与
 人体指标，计算完成后立即删除模型，不读取服务端 `body_profiles`。商户商品图
-继续写入独立持久目录 `data/commercial`。`/api/body-profile` 接口暂时保留以
-兼容旧页面，待浏览器接线完成后随 gate 一并处理。
+继续写入独立持久目录 `data/commercial`。
+
+浏览器接线已完成：页面启动时从 IndexedDB 读回本机素材与任务镜像，Blob URL
+按页面现场重建；工作中台、试穿页与脸部精修页把服务端任务列表与本地镜像合并
+显示，产物下载进本机后才确认，下载失败则留给下一轮重试，绝不先删后取。试穿
+「继续生成 3D」改为重新上传本机保存的六视图结果并调用 `POST /api/jobs`，不再
+依赖已移除的 `/api/tryons/{id}/continue`。人体数据改为本机 `body-profile` 记录，
+建模页只读写本机文件；推荐页把本机 GLB 与数值随单次请求上传。`/api/body-profile`
+接口仍保留，用于兼容浏览器里可能缓存的旧页面——重新加载过的页面都已不调用它，
+接口本身待与共享工作台 gate 一并在部署阶段移除。
 
 旧 `studio.sqlite3`、试穿/精修数据库、`body_profiles` 和备份不能无授权清空，
 也不能自动归属第一个注册用户。切换时应停止网页读取旧共享记录，并只迁移

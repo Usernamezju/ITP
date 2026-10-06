@@ -2,8 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
+import { imageFromCanvas, triangleGlb } from './fixtures';
+
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
-const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=', 'base64');
 
 async function openStudio(page: Page, jobs: unknown[] = []) {
   if (jobs.length) await page.addInitScript(() => localStorage.setItem('itp.merchant.token', 'history-token'));
@@ -21,9 +22,14 @@ async function openStudio(page: Page, jobs: unknown[] = []) {
       await route.fulfill({ json: { tencent_endpoint: '', tencent_region: '', tencent_model: '3.1',
         tencent_secret_id_set: false, tencent_secret_key_set: false, pose_endpoint: '',
         pose_model: 'qwen-image-edit-plus-2025-12-15', pose_api_key_set: false } });
-    } else if (pathname.startsWith('/api/assets') && request.method() === 'POST') {
-      await route.fulfill({ status: 201, json: { id: 'a'.repeat(32), url: `data:image/png;base64,${image.toString('base64')}`,
-        kind: 'image', width: 256, height: 256, size: image.length } });
+    } else if (/^\/api\/assets\/[a-f0-9]{32}\/file$/.test(pathname)) {
+      // Results are downloaded into this browser before the server drops them.
+      await route.fulfill({ body: triangleGlb(), contentType: 'model/gltf-binary' });
+    } else if (/^\/api\/assets\/[a-f0-9]{32}$/.test(pathname)) {
+      await route.fulfill({ json: { id: pathname.split('/').pop(), url: '', kind: 'model',
+        size: 100, format: 'GLB' } });
+    } else if (/^\/api\/jobs\/[a-f0-9]{32}\/acknowledge$/.test(pathname)) {
+      await route.fulfill({ status: 204, body: '' });
     } else if (pathname === '/') {
       await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     } else if (pathname.startsWith('/assets/')) {
@@ -42,8 +48,9 @@ test('generate checklist and uploaded image preview', async ({ page }) => {
   await openStudio(page);
   await page.getByRole('button', { name: '开始生成' }).click();
   await expect(page.getByText('请上传角色图片')).toBeVisible();
+  // The picture is read here, in this browser; nothing is uploaded yet.
   await page.getByLabel('上传上传角色图片').setInputFiles({
-    name: 'character.png', mimeType: 'image/png', buffer: image,
+    name: 'character.png', mimeType: 'image/png', buffer: await imageFromCanvas(page),
   });
   await expect(page.getByText('请上传角色图片')).toHaveCount(0);
   await page.getByRole('button', { name: '放大查看上传角色图片' }).click();
@@ -106,7 +113,10 @@ test('a failed rig step keeps generated models visible as partial success', asyn
   await expect(page.getByLabel('资产生成参数')).toContainText('混元生3D Pro · 版本未记录');
   await expect(page.getByText('已完成几何生成、PBR 纹理，自动绑骨未完成。已有产物仍可预览、下载。')).toBeVisible();
   await expect(page.getByText(/绑骨接口未接受输入模型/)).toBeVisible();
-  await expect(page.getByRole('link', { name: '下载PBR 纹理GLB' })).toHaveAttribute('href', /e{32}/);
+  // The file now comes out of this browser, not from a server route.
+  const download = page.getByRole('link', { name: '下载PBR 纹理GLB' });
+  await expect(download).toHaveAttribute('download', '已生成角色-texture.glb');
+  await expect(download).toHaveAttribute('href', /^blob:/);
 });
 
 test('asset page shows saved generation model and processing options', async ({ page }) => {
