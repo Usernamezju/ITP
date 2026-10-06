@@ -768,6 +768,46 @@ class MerchantStore:
             ).fetchone()
         return self._merchant_row(row)
 
+    def list_accounts(self, *, limit: int = 100, offset: int = 0) -> tuple[int, list[dict]]:
+        """Admin console view: every account, newest first, without password hashes."""
+        with self.connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM merchants").fetchone()[0]
+            rows = conn.execute(
+                "SELECT id, name, display_name, contact, created, disabled, quota, role "
+                "FROM merchants ORDER BY created DESC, rowid DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+            products = dict(
+                conn.execute("SELECT merchant_id, COUNT(*) FROM garments GROUP BY merchant_id")
+            )
+        return total, [
+            {
+                "id": row[0],
+                "name": row[1],
+                "display_name": row[2],
+                "contact": row[3],
+                "created": row[4],
+                "disabled": bool(row[5]),
+                "quota": row[6] if row[6] is not None else 0,
+                "role": row[7],
+                "garment_count": products.get(row[0], 0),
+            }
+            for row in rows
+        ]
+
+    def role_counts(self) -> dict:
+        with self.connect() as conn:
+            return dict(conn.execute("SELECT role, COUNT(*) FROM merchants GROUP BY role"))
+
+    def content_counts(self) -> dict:
+        """Platform totals for products and outfits, grouped by publication status."""
+        with self.connect() as conn:
+            documents = {}
+            for key, table in (("garments", "garments"), ("looks", "looks")):
+                counts = dict(conn.execute(f"SELECT status, COUNT(*) FROM {table} GROUP BY status"))
+                documents[key] = {"total": sum(counts.values()), **counts}
+        return documents
+
     def set_password(self, merchant_id: str, password_hash: str) -> bool:
         """Replace the password hash; tokens issued under the old one stop working."""
         with self._lock, self.connect() as conn:

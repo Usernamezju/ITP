@@ -2,15 +2,20 @@
 
 import sqlite3
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from itp.api import create_app
 from itp.config import Settings
 from itp.garments import MerchantStore
+from itp.merchant_auth import encode_token, resolve_jwt_secret
+from itp.payments import VerifiedPayment
 
 SECRET = "a" * 64
 PASSWORD = "original-password"
+ADMIN_PATHS = ("/api/admin/status", "/api/admin/settings", "/api/admin/accounts",
+               "/api/admin/usage", "/api/admin/orders", "/api/admin/jobs")
 
 LEGACY_SCHEMA = (
     "CREATE TABLE merchants ("
@@ -30,10 +35,28 @@ PRE_ROLE_SCHEMA = (
 
 @pytest.fixture
 def client(tmp_path):
-    app = create_app(Settings(_env_file=None, data_dir=tmp_path / "data", jwt_secret=SECRET),
+    app = create_app(Settings(_env_file=None, data_dir=tmp_path / "data", jwt_secret=SECRET,
+                              environment="test", payment_mock_enabled=True,
+                              payment_mock_secret="test-signing-secret-" * 3),
                      start_worker=False, config_path=tmp_path / ".env")
     with TestClient(app, base_url="http://localhost:8000") as client:
         yield client
+
+
+def signup(client, role="customer", name="alice"):
+    response = client.post("/api/auth/register", json={"name": name, "display_name": "测试账号",
+        "password": PASSWORD, "role": role})
+    assert response.status_code == 201, response.text
+    login = client.post("/api/auth/login", json={"name": name, "password": PASSWORD})
+    return response.json(), {"Authorization": "Bearer " + login.json()["access_token"]}
+
+
+def admin_auth(client, name="admin"):
+    store = client.app.state.merchants
+    account = store.merchant_by_name(name) or create_admin(store, name=name)
+    token, _ = encode_token(resolve_jwt_secret(client.app), account["id"], hours=12,
+                            password_hash=account["password_hash"])
+    return account, {"Authorization": "Bearer " + token}
 
 
 def write_legacy_database(root, schema=LEGACY_SCHEMA):
@@ -128,3 +151,196 @@ def test_registration_api_still_refuses_admin(client):
     response = client.post("/api/auth/register", json={"name": "admin", "display_name": "管理员",
         "password": PASSWORD, "role": "admin"})
     assert response.status_code == 422
+
+
+# ------------------------------------------------------------------ access control
+
+
+@pytest.mark.parametrize("path", ADMIN_PATHS)
+def test_admin_endpoints_require_a_valid_session(client, path):
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers={"Authorization": "Bearer not-a-token"}).status_code == 401
+
+
+@pytest.mark.parametrize("path", ADMIN_PATHS)
+def test_admin_endpoints_reject_customer_and_merchant_roles(client, path):
+    _, customer = signup(client)
+    _, merchant = signup(client, "merchant", name="shop")
+    for auth in (customer, merchant):
+        response = client.get(path, headers=auth)
+        assert response.status_code == 403
+        assert response.json()["detail"] == "需要管理员身份才能访问"
+
+
+@pytest.mark.parametrize("path", ADMIN_PATHS)
+def test_admin_endpoints_answer_the_admin_role_with_no_store(client, path):
+    _, auth = admin_auth(client)
+    response = client.get(path, headers=auth)
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_disabled_admin_loses_access(client):
+    account, auth = admin_auth(client)
+    client.app.state.merchants.set_disabled(account["id"], True)
+    response = client.get("/api/admin/status", headers=auth)
+    assert response.status_code == 403
+    assert "禁用" in response.json()["detail"]
+
+
+def test_admin_endpoints_are_hidden_from_the_public_schema(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    assert not any(path.startswith("/api/admin") for path in paths)
+
+
+# ------------------------------------------------------------------ status probe
+
+
+def test_faceverse_probe_reports_unconfigured(client):
+    _, auth = admin_auth(client)
+    services = client.get("/api/admin/status", headers=auth).json()["services"]
+    assert services["faceverse"] == {"configured": False, "reachable": False,
+                                     "model": "faceverse-v4", "status": None,
+                                     "cuda": None, "gpu": None}
+
+
+def faceverse_app(tmp_path):
+    return create_app(
+        Settings(_env_file=None, data_dir=tmp_path / "data", jwt_secret=SECRET,
+                 faceverse_endpoint="https://face.example.org/v1/face-refine",
+                 faceverse_api_key="face-secret"),
+        start_worker=False, config_path=tmp_path / ".env")
+
+
+def test_faceverse_probe_reports_a_live_service(tmp_path, monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"status": "ready", "model": "faceverse-v4",
+                                         "cuda": True, "gpu": "RTX 4090"})
+
+    real_client = httpx.Client
+    app = faceverse_app(tmp_path)
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        _, auth = admin_auth(client)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: real_client(
+            transport=httpx.MockTransport(handler), **kwargs))
+        services = client.get("/api/admin/status", headers=auth).json()["services"]
+    assert seen["url"] == "https://face.example.org/health"
+    assert seen["authorization"] == "Bearer face-secret"
+    assert services["faceverse"] == {"configured": True, "reachable": True,
+                                     "model": "faceverse-v4", "status": "ready",
+                                     "cuda": True, "gpu": "RTX 4090"}
+
+
+def test_faceverse_probe_failure_never_breaks_the_status_page(tmp_path, monkeypatch):
+    def handler(request):
+        raise httpx.ConnectError("connection refused", request=request)
+
+    real_client = httpx.Client
+    app = faceverse_app(tmp_path)
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        _, auth = admin_auth(client)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: real_client(
+            transport=httpx.MockTransport(handler), **kwargs))
+        response = client.get("/api/admin/status", headers=auth)
+    assert response.status_code == 200
+    faceverse = response.json()["services"]["faceverse"]
+    assert faceverse["configured"] is True and faceverse["reachable"] is False
+
+
+# ------------------------------------------------------------ settings & accounts
+
+
+def test_admin_settings_reports_secrets_as_booleans(tmp_path):
+    app = create_app(Settings(_env_file=None, data_dir=tmp_path / "data", jwt_secret=SECRET,
+                              tencent_secret_id="test-only-secret-id",
+                              tencent_secret_key="test-only-secret-key",
+                              pose_api_key="test-only-pose-key"),
+                     start_worker=False, config_path=tmp_path / ".env")
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        _, auth = admin_auth(client)
+        response = client.get("/api/admin/settings", headers=auth)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tencent_secret_id_set"] is True
+    assert body["tencent_secret_key_set"] is True
+    assert body["pose_api_key_set"] is True
+    assert body["tencent_model"]
+    for secret in ("test-only-secret-id", "test-only-secret-key", "test-only-pose-key"):
+        assert secret not in response.text
+
+
+# ------------------------------------------------------------------ platform data
+
+
+def test_admin_dashboards_aggregate_every_account(client):
+    store = client.app.state.merchants
+    payments = client.app.state.payments
+    commerce = payments.commerce
+    alice = store.create_merchant(name="alice", display_name="Alice", contact="",
+                                  password_hash="hash", quota=0, role="customer")
+    bob = store.create_merchant(name="bob", display_name="Bob", contact="",
+                                password_hash="hash", quota=0, role="merchant")
+    with store.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        commerce.credit_verified_order(conn, alice["id"], 10000, "alice-recharge")
+        commerce.credit_verified_order(conn, bob["id"], 4000, "bob-recharge")
+
+    paid = payments.create(alice["id"], {"kind": "recharge", "provider": "mock",
+                                         "amount_cents": 5000, "plan_id": None}, "alice-order-key")
+    payments.fulfill(VerifiedPayment("mock", paid["id"], "alice-transaction", 5000, "CNY",
+                                     "local-development", "local-development"))
+    payments.create(bob["id"], {"kind": "recharge", "provider": "mock", "amount_cents": 700,
+                                "plan_id": None}, "bob-order-key")
+
+    price = commerce.model_price_cents
+    completed = commerce.reserve_model(alice["id"], "alice-charge-key", {"name": "alice"})
+    commerce.finish_model(completed["job_id"], succeeded=True, valid_result=True)
+    refunded = commerce.reserve_model(bob["id"], "bob-charge-key", {"name": "bob"})
+    commerce.finish_model(refunded["job_id"], succeeded=False, valid_result=False)
+
+    store.create_garment(bob["id"], {"name": "测试商品", "status": "draft"})
+    for owner in (alice["id"], bob["id"]):
+        client.app.state.store.create_job({"name": "aggregate-job"}, owner_id=owner)
+
+    _, auth = admin_auth(client)
+    usage = client.get("/api/admin/usage", headers=auth).json()
+    assert usage["model_charges"]["completed"] == {"count": 1, "amount_cents": price}
+    assert usage["model_charges"]["refunded"] == {"count": 1, "amount_cents": price}
+    assert usage["wallets"] == {"count": 2,
+                                "total_balance_cents": 10000 + 5000 - price + 4000}
+    assert usage["garments"]["total"] == 1 and usage["garments"]["draft"] == 1
+    assert usage["orders"]["paid"] == {"count": 1, "amount_cents": 5000}
+    assert usage["orders"]["pending"]["count"] == 1
+    assert {row["account_name"] for row in usage["recent_ledger"]} == {"alice", "bob"}
+
+    accounts = client.get("/api/admin/accounts", headers=auth).json()
+    assert accounts["total"] == 3  # alice, bob and the console's own admin account
+    by_name = {item["name"]: item for item in accounts["items"]}
+    assert by_name["alice"]["role"] == "customer" and by_name["alice"]["garment_count"] == 0
+    assert by_name["bob"]["garment_count"] == 1 and by_name["bob"]["disabled"] is False
+    assert by_name["admin"]["role"] == "admin"
+    assert "password_hash" not in client.get("/api/admin/accounts", headers=auth).text
+
+    orders = client.get("/api/admin/orders", headers=auth).json()
+    assert orders["total"] == 2
+    assert {row["account_name"] for row in orders["items"]} == {"alice", "bob"}
+
+    jobs = client.get("/api/admin/jobs", headers=auth).json()
+    assert {job["owner_id"] for job in jobs["jobs"]} == {alice["id"], bob["id"]}
+    assert jobs["tryons"] == [] and jobs["face_refinements"] == []
+    assert "没有历史任务" in jobs["note"]
+
+
+def test_admin_pagination_bounds_are_validated(client):
+    _, auth = admin_auth(client)
+    for path in ("/api/admin/accounts", "/api/admin/orders"):
+        assert client.get(path, headers=auth, params={"limit": 0}).status_code == 422
+        assert client.get(path, headers=auth, params={"offset": -1}).status_code == 422
+    assert client.get("/api/admin/accounts", headers=auth,
+                      params={"limit": 501}).status_code == 422
+    assert client.get("/api/admin/orders", headers=auth,
+                      params={"limit": 201}).status_code == 422

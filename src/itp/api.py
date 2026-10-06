@@ -47,6 +47,7 @@ from itp.garments import (
 from itp.merchant_auth import (
     DUMMY_PASSWORD_HASH,
     bearer_token,
+    current_admin,
     current_merchant,
     current_user,
     encode_token,
@@ -469,8 +470,9 @@ def create_app(
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        private_paths = ("/api/auth/", "/api/account/", "/api/merchant/", "/api/jobs",
-                         "/api/assets", "/api/face-", "/api/tryons", "/api/model-assets")
+        private_paths = ("/api/auth/", "/api/account/", "/api/merchant/", "/api/admin/",
+                         "/api/jobs", "/api/assets", "/api/face-", "/api/tryons",
+                         "/api/model-assets")
         if (request.url.path == "/api/settings" or request.url.path == "/api/outfits/recommend"
                 or request.url.path.startswith(private_paths)):
             response.headers["Cache-Control"] = "no-store"
@@ -570,6 +572,126 @@ def create_app(
             face_worker.settings = updated
             face_worker.provider.settings = updated
             return public_settings(updated)
+
+    # ---------------------------------------------------- admin console (read-only)
+    # Platform developer/administrator views. Admin accounts can only be minted
+    # by scripts/create_admin.py; registration refuses the role outright. As with
+    # the legacy /api/settings maintenance surface, these endpoints stay out of
+    # the public OpenAPI document.
+
+    def faceverse_health() -> dict:
+        current = app.state.settings
+        model = current.faceverse_model
+        if not current.faceverse_ready:
+            return {"configured": False, "reachable": False, "model": model,
+                    "status": None, "cuda": None, "gpu": None}
+        endpoint = current.faceverse_endpoint.removesuffix("/v1/face-refine") + "/health"
+        token = current.faceverse_api_key.get_secret_value()
+        try:
+            with httpx.Client(timeout=3, follow_redirects=False, trust_env=False) as client:
+                response = client.get(endpoint, headers={"Authorization": f"Bearer {token}"})
+                response.raise_for_status()
+                body = response.json()
+            return {"configured": True, "reachable": True, "model": model,
+                    "status": body.get("status"), "cuda": body.get("cuda"),
+                    "gpu": body.get("gpu")}
+        except (httpx.HTTPError, ValueError, AttributeError, TypeError):
+            return {"configured": True, "reachable": False, "model": model,
+                    "status": None, "cuda": None, "gpu": None}
+
+    @app.get("/api/admin/status", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_status():
+        current = app.state.settings
+        return {
+            "version": "0.1.0",
+            "services": {
+                "geometry": current.geometry_ready,
+                "pose": current.pose_ready,
+                "segmentation": current.segmentation_model.is_file(),
+                "outfit_images": resolve_provider(current)[0],
+                "faceverse": faceverse_health(),
+                "tryon": {
+                    name: {
+                        "ready": current.tryon_provider_ready(name),
+                        "model": current.tryon_model_for(name),
+                    }
+                    for name in ("seedream", *BFL_PROVIDERS, *KLEIN_PROVIDERS, "gpt_image")
+                },
+                "flux_klein": flux_klein_health(),
+                "flux_klein_9b": flux_klein_health("flux_klein_9b"),
+            },
+            "payments": app.state.payments.methods(),
+        }
+
+    @app.get("/api/admin/settings", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_settings():
+        # Secrets never leave as values: public_settings reports *_set booleans.
+        return public_settings(app.state.settings)
+
+    @app.get("/api/admin/accounts", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_accounts(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
+        total, accounts = merchants.list_accounts(limit=limit, offset=offset)
+        return {"total": total, "items": [
+            public_account(account) | {
+                "disabled": account["disabled"],
+                "quota": account["quota"],
+                "garment_count": account["garment_count"],
+            }
+            for account in accounts
+        ]}
+
+    @app.get("/api/admin/usage", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_usage():
+        content = merchants.content_counts()
+        usage = app.state.payments.commerce.platform_totals()
+        usage["garments"] = content["garments"]
+        usage["looks"] = content["looks"]
+        usage["orders"] = app.state.payments.order_counts()
+        return usage
+
+    @app.get("/api/admin/orders", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_orders(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+        total, orders = app.state.payments.list_all(limit=limit, offset=offset)
+        return {"total": total, "items": orders}
+
+    def admin_job_view(job: dict) -> dict:
+        return {
+            "id": job.get("id"),
+            "owner_id": job.get("owner_id"),
+            "state": job.get("state"),
+            "created": job.get("created"),
+            "updated": job.get("updated"),
+            "steps": [
+                {"name": step.get("name"), "status": step.get("status")}
+                for step in job.get("steps", [])
+            ],
+        }
+
+    def admin_transient_view(item: dict) -> dict:
+        return {
+            "id": item.get("id"),
+            "owner_id": item.get("owner_id"),
+            "state": item.get("state"),
+            "created": item.get("created"),
+            "model": item.get("model"),
+            "provider": item.get("provider"),
+        }
+
+    @app.get("/api/admin/jobs", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_jobs():
+        return {
+            "jobs": [admin_job_view(job) for job in store.jobs()],
+            "tryons": [admin_transient_view(item) for item in tryons.list()],
+            "face_refinements": [admin_transient_view(item) for item in face_jobs.list()],
+            "note": "仅显示服务端当前保留的任务；顾客确认保存后服务端副本即被删除，"
+                    "没有历史任务记录。",
+        }
 
     @app.post("/api/assets", status_code=201)
     async def upload(file: UploadFile = File(...), remove_background: bool = Query(False),

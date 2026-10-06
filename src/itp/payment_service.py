@@ -105,6 +105,38 @@ class PaymentService:
             ).fetchall()
         return [self.public(self._order(row)) for row in rows]
 
+    def list_all(self, *, limit=50, offset=0):
+        """Admin console view: every order with its account name, newest first."""
+        with self.accounts.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            total = conn.execute("SELECT COUNT(*) FROM payment_orders").fetchone()[0]
+            rows = conn.execute(
+                "SELECT o.*, m.name AS account_name FROM payment_orders o "
+                "LEFT JOIN merchants m ON m.id = o.user_id "
+                "ORDER BY o.created DESC, o.rowid DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return total, [
+            self.public(self._order(row))
+            | {"user_id": row["user_id"], "account_name": row["account_name"]}
+            for row in rows
+        ]
+
+    def order_counts(self):
+        """Admin console aggregate: orders per state, paid amount in integer cents."""
+        with self.accounts.connect() as conn:
+            counts = {
+                state: {"count": count, "amount_cents": amount}
+                for state, count, amount in conn.execute(
+                    "SELECT state, COUNT(*), COALESCE(SUM(amount_cents), 0) "
+                    "FROM payment_orders GROUP BY state"
+                )
+            }
+        return {
+            state: counts.get(state, {"count": 0, "amount_cents": 0})
+            for state in ("created", "submitting", "pending", "paid", "uncertain")
+        }
+
     @staticmethod
     def public(order):
         return {

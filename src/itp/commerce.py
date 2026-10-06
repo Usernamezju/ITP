@@ -507,3 +507,45 @@ class CommerceStore:
             )
             for row in rows
         ]
+
+    def platform_totals(self):
+        """Admin console aggregate: model charges, wallet balances, recent ledger.
+
+        Ledger rows carry business references and amounts only; the privacy
+        design keeps photos, paths and body metrics out of this table.
+        """
+        with self.accounts.connect() as conn:
+            charges = {
+                state: {"count": count, "amount_cents": amount}
+                for state, count, amount in conn.execute(
+                    "SELECT state, COUNT(*), COALESCE(SUM(amount_cents), 0) "
+                    "FROM model_charges GROUP BY state"
+                )
+            }
+            wallets = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(balance_cents), 0) FROM wallets"
+            ).fetchone()
+            ledger = conn.execute(
+                "SELECT l.id, l.user_id, m.name, l.delta_cents, l.balance_cents, l.kind, "
+                "l.reference, l.created FROM wallet_ledger l "
+                "LEFT JOIN merchants m ON m.id = l.user_id "
+                "ORDER BY l.created DESC, l.rowid DESC LIMIT 20"
+            ).fetchall()
+        return {
+            "model_charges": {
+                state: charges.get(state, {"count": 0, "amount_cents": 0})
+                for state in ("reserved", "completed", "refunded")
+            },
+            "wallets": {"count": wallets[0], "total_balance_cents": wallets[1]},
+            "recent_ledger": [
+                dict(
+                    zip(
+                        ("id", "user_id", "account_name", "delta_cents", "balance_cents",
+                         "kind", "reference", "created"),
+                        row,
+                        strict=False,
+                    )
+                )
+                for row in ledger
+            ],
+        }
