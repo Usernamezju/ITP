@@ -37,7 +37,8 @@ export type FitScore = {
   score: number; fit_score: number; preference_score: number; confidence: number;
   dimensions: FitDimension[]; reasons: string[]; warnings: string[]; suggestions: string[];
 };
-export type OutfitItem = { category: string; name: string; color: string; note: string };
+export type OutfitItem = { category: string; name: string; color: string; note: string;
+  garment_id?: string; merchant_id?: string; purchase_url?: string | null; price_cents?: number | null };
 export type Outfit = {
   id: string; name: string; tagline: string; story: string;
   style: string; season: string; occasion: string;
@@ -49,6 +50,9 @@ export type Outfit = {
   /** Merchant-uploaded product photos; these win over searched reference images. */
   image_url?: string | null;
   image_urls?: string[];
+  price_cents?: number | null;
+  ranking?: { score: number; base_score: number; components: Record<string, number>;
+    weights: Record<string, number>; reasons: string[]; cold_start: boolean; context_in_base: boolean };
 };
 export type BodyAnalysis = {
   available: boolean; method: string; labels: Record<string, string>;

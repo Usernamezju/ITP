@@ -114,6 +114,11 @@ async function openConsole(page: Page, state: {
       await route.fulfill({ json: options });
     } else if (pathname === '/api/merchant/me') {
       await route.fulfill({ json: { ...profile, garment_count: goods.length } });
+    } else if (pathname === '/api/merchant/analytics') {
+      await route.fulfill({ json: { summary: { today: 0, month: 0, total: 0 },
+        timezone: 'Asia/Shanghai', total: goods.length, items: goods.map((item) => ({
+          ...(item as object), clicks: { today: 0, month: 0, total: 0 },
+        })), trend: [] } });
     } else if (pathname === '/api/merchant/login' && method === 'POST') {
       await route.fulfill({ json: { access_token: 'test-token', token_type: 'bearer',
         expires_in: 43200 } });
@@ -336,4 +341,19 @@ test('changing the password signs the shop out, because the token is revoked', a
   expect(sent).toHaveLength(1);
   expect(sent[0].body).toContain('"current_password":"demo-pass-123"');
   expect(sent[0].body).toContain('"new_password":"new-pass-1234"');
+});
+
+
+test('a dangerous purchase destination is rejected beside the field', async ({ page }) => {
+  const calls = await openConsole(page);
+  await page.getByRole('button', { name: /新建商品/ }).first().click();
+  await page.getByLabel('商品名称').fill('链接校验商品');
+  await page.getByLabel('商品购买链接（选填）').fill('javascript:alert(1)');
+  await expect(page.locator('.merchant-editor .field-error')).toContainText('http:// 或 https://');
+  await page.getByRole('button', { name: '保存并发布' }).click();
+  expect(writes(calls, '/api/merchant/garments')).toHaveLength(0);
+  await page.getByLabel('商品购买链接（选填）').fill('https://item.jd.com/123.html');
+  await page.getByRole('button', { name: '保存并发布' }).click();
+  await expect.poll(() => writes(calls, '/api/merchant/garments').length).toBe(1);
+  expect(writes(calls, '/api/merchant/garments')[0].body).toContain('"purchase_url":"https://item.jd.com/123.html"');
 });

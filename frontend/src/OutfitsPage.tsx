@@ -8,6 +8,9 @@ import { localAssets, localRecords, localValue } from './localData';
 import { sessionToken } from './session';
 import { uploadLocal, type LocalJob } from './transient';
 import { LookBoard } from './LookBoard';
+import { ProductPurchase } from './ProductPurchase';
+import { yuanText } from './money';
+import { clearPreferences, historyPreferences, rememberPreference } from './recommendationHistory';
 import './OutfitsPage.css';
 
 const imageProviderLabels: Record<string, string> = {
@@ -195,6 +198,7 @@ function OutfitCard({ outfit, analyzed, onOpen }: {
   const searchable = outfit.origin !== 'database';
   const { images, loading, reload } = useOutfitImages(outfit.id, 4, seen && searchable);
   const [index, setIndex] = useState(0);
+  const [broken, setBroken] = useState('');
   const list = product.length || !searchable ? [] : (images?.images || []);
   const current = list.length ? list[index % list.length] : undefined;
   const hero = product.length ? product[index % product.length] : current?.url;
@@ -203,8 +207,8 @@ function OutfitCard({ outfit, analyzed, onOpen }: {
   return <article className="outfit-card" ref={ref}>
     <div className="outfit-card-board">
       <button type="button" className="outfit-card-open" onClick={onOpen} aria-label={`查看${outfit.name}详情`}>
-        {hero
-          ? <img src={hero} alt={current?.title || `${outfit.name} 参考图`} loading="lazy" />
+        {hero && hero !== broken
+          ? <img src={hero} alt={current?.title || `${outfit.name} 参考图`} loading="lazy" onError={() => setBroken(hero)} />
           : <LookBoard palette={outfit.palette} style={outfit.style} season={outfit.season} label={outfit.name} />}
       </button>
       {switchable && <button type="button" className="outfit-cycle"
@@ -219,12 +223,19 @@ function OutfitCard({ outfit, analyzed, onOpen }: {
       aria-label={`查看${outfit.name}介绍与单品`}>
       <span className="outfit-card-title"><strong>{outfit.name}</strong><ArrowRight size={13} /></span>
       <small className="outfit-card-tagline">{outfit.tagline}</small>
+      <span className="outfit-card-reason">{outfit.reason}</span>
       <span className="outfit-card-tags">
         {outfit.origin === 'database' && <i className="outfit-card-origin">商家</i>}
         <i>{outfit.style}</i><i>{outfit.season}</i><i>{outfit.occasion}</i></span>
       <span className="outfit-palette">{outfit.palette.map((color) =>
         <i key={color} style={{ background: color }} />)}</span>
     </button>
+    <div className="outfit-card-commerce">
+      <strong className="outfit-price">{outfit.price_cents == null ? '价格以商品页面为准' : `¥${yuanText(outfit.price_cents)}`}</strong>
+      {outfit.items.length === 1 && outfit.items[0].purchase_url
+        ? <ProductPurchase item={outfit.items[0]} onPreference={() => rememberPreference(outfit, 'click')} />
+        : <button type="button" className="button small" onClick={onOpen}>立即查看</button>}
+    </div>
   </article>;
 }
 
@@ -234,6 +245,7 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
   const searchable = outfit.origin !== 'database';
   const { images, loading, reload } = useOutfitImages(outfit.id, 8, searchable);
   const [index, setIndex] = useState(0);
+  const [broken, setBroken] = useState('');
   const list = product.length || !searchable ? [] : (images?.images || []);
   const current = list[Math.min(index, Math.max(list.length - 1, 0))];
   const urls = product.length ? product : list.map((image) => image.url);
@@ -254,7 +266,9 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
   }
   return <div className="outfit-gallery">
     <figure className="outfit-gallery-main">
-      <img src={hero} alt={current?.title || `${outfit.name} 商品图`} />
+      {hero !== broken ? <img src={hero} alt={current?.title || `${outfit.name} 商品图`}
+        onError={() => setBroken(hero || '')} />
+        : <LookBoard palette={outfit.palette} style={outfit.style} season={outfit.season} label={outfit.name} />}
       <figcaption>
         {product.length
           ? <span>商家上传的商品图 <b>{index + 1}/{product.length}</b></span>
@@ -309,7 +323,10 @@ export function OutfitsPage({ caps, ready, onModeling }: {
   // The models and the numbers are this browser's own; read them back once the
   // local store has loaded, never from the server.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) {
+      setLocal(null); setSource(''); setData(null); setDetail(null);
+      return;
+    }
     let active = true;
     void (async () => {
       const saved = await localRecords<LocalJob>('job:');
@@ -334,27 +351,32 @@ export function OutfitsPage({ caps, ready, onModeling }: {
   const modelJobs = local?.models || [];
 
   useEffect(() => {
-    if (!local) return;
+    if (!local || !ready) return;
     let cancelled = false;
     setLoading(true); setError('');
     const measurements = Object.fromEntries(Object.entries(local.profile)
       .filter(([, value]) => typeof value === 'number'));
     const filters = { style: style || undefined, season: season || undefined,
       occasion: occasion || undefined, limit };
+    const history = historyPreferences();
+    const preferenceFields = Object.keys(history).length ? { history_preferences: history } : {};
     // A signed-in browser scores against its own model and numbers: both are
     // uploaded for this one run and the server deletes its copies immediately.
     // Everyone else reads the published catalogue.
     const request = sessionToken.read()
-      ? uploadLocal(source).then((asset) => post<OutfitResponse>('/api/outfits/recommend', {
-        asset_id: asset.id,
+      ? (source ? uploadLocal(source).then((asset) => asset.id) : Promise.resolve(undefined))
+        .then((assetId) => post<OutfitResponse>('/api/outfits/recommend', {
+        asset_id: assetId,
         measurements: Object.keys(measurements).length ? measurements : undefined,
         pose_mode: modelJobs.find((item) => item.id === source)?.pose_mode,
         ...filters,
+        ...preferenceFields,
       })).catch((err) => {
         // An expired sign-in still gets catalogue advice instead of nothing.
         if (!(err instanceof ApiError) || err.status !== 401) throw err;
         return api<OutfitResponse>(`/api/outfits?limit=${limit}`);
       })
+      : Object.keys(history).length ? post<OutfitResponse>('/api/outfits/discover', { ...filters, ...preferenceFields })
       : api<OutfitResponse>(`/api/outfits?${new URLSearchParams({
         ...(filters.style ? { style: filters.style } : {}),
         ...(filters.season ? { season: filters.season } : {}),
@@ -366,7 +388,7 @@ export function OutfitsPage({ caps, ready, onModeling }: {
       .catch((err) => { if (!cancelled) setError((err as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [local, source, style, season, occasion, limit, reload]);
+  }, [local, ready, source, style, season, occasion, limit, reload]);
 
   useEffect(() => {
     if (detail && !dialog.current?.open) dialog.current?.showModal();
@@ -408,6 +430,11 @@ export function OutfitsPage({ caps, ready, onModeling }: {
           {limit === 6 ? '查看全部套装' : '只看精选 6 套'}<ArrowRight size={16} />
         </button>
         <small>本地精选目录 · 不调用云端服务</small>
+        <button type="button" className="text-button" onClick={() => {
+          void clearPreferences().then(() => setReload((value) => value + 1))
+            .catch(() => setError('本地偏好清除失败，请检查浏览器存储权限。'));
+        }}>清除推荐偏好</button>
+        <small>仅在本机记住常看的风格和品类，可随时清除。</small>
       </div>
     </section>
 
@@ -417,6 +444,8 @@ export function OutfitsPage({ caps, ready, onModeling }: {
           <span className="muted">/ {analyzed ? '已测量比例' : '等待建模'}</span></div>
         <span className={`outfits-state ${analyzed ? 'ready' : 'empty'}`}>{analyzed ? '已分析' : '未生成'}</span>
       </div>
+      <details className="outfits-analysis-details" open={!analysis}>
+        <summary>查看人体数据与推荐依据</summary>
       <BodySummary body={analysis?.body} />
       {analysis
         ? <AnalysisPanel analysis={analysis} onModeling={onModeling} />
@@ -430,6 +459,7 @@ export function OutfitsPage({ caps, ready, onModeling }: {
           : <div className="outfits-analysis-empty"><span className="outfits-analysis-icon">
             <LoaderCircle size={22} className="spin" /></span><div><h3>正在读取推荐</h3>
               <p>首次读取本地目录通常在一秒内完成。</p></div></div>}
+      </details>
       {error && analysis && <p className="outfits-error" role="alert">{error}</p>}
 
       <div className="outfits-results-heading">
@@ -439,7 +469,7 @@ export function OutfitsPage({ caps, ready, onModeling }: {
       {recommendations.length
         ? <div className={`outfits-grid ${loading ? 'loading' : ''}`}>
           {recommendations.map((outfit) => <OutfitCard key={outfit.id} outfit={outfit}
-            analyzed={analyzed} onOpen={() => setDetail(outfit)} />)}
+            analyzed={analyzed} onOpen={() => { rememberPreference(outfit, 'view'); setDetail(outfit); }} />)}
         </div>
         : !error ? <div className="outfits-empty"><Layers3 size={26} strokeWidth={1.2} />
           <span>没有符合条件的套装</span><small>试试把筛选改回「全部」</small></div> : null}
@@ -491,7 +521,16 @@ export function OutfitsPage({ caps, ready, onModeling }: {
             </div>
             <p className="outfit-dialog-story">{detail.story}</p>
             <div className="outfit-dialog-reason"><Sparkles size={13} /><p>{detail.reason}</p></div>
-            {detail.fit && <div className="outfit-fit">
+            <h3>套装单品 <span>{detail.items.length}</span></h3>
+            <ul className="outfit-item-list">
+              {detail.items.map((item, index) => <li key={`${item.category}-${index}`}>
+                <span className="outfit-item-color" style={{ background: item.color }} />
+                <div><strong>{item.name}</strong><small>{item.category} · {item.note}</small>
+                  <strong className="outfit-item-price">{item.price_cents == null ? '价格以商品页面为准' : `¥${yuanText(item.price_cents)}`}</strong>
+                  <ProductPurchase item={item} onPreference={() => rememberPreference(detail, 'click')} /></div>
+              </li>)}
+            </ul>
+            {detail.fit && <details className="outfit-fit-details"><summary>查看尺码匹配详情</summary><div className="outfit-fit">
               <h3><Ruler size={12} /> 尺码匹配 <span>{Math.round(detail.fit.score * 100)}</span></h3>
               <ul className="outfit-fit-list">
                 {[...detail.fit.dimensions].sort((left, right) => right.weight - left.weight)
@@ -513,14 +552,7 @@ export function OutfitsPage({ caps, ready, onModeling }: {
               </ul>}
               <p className="outfit-fit-confidence">匹配可信度 {Math.round(detail.fit.confidence * 100)}%
                 {detail.fit.confidence < 0.6 && ' · 数据不全，建议补充身高与三围'}</p>
-            </div>}
-            <h3>套装单品 <span>{detail.items.length}</span></h3>
-            <ul className="outfit-item-list">
-              {detail.items.map((item, index) => <li key={`${item.category}-${index}`}>
-                <span className="outfit-item-color" style={{ background: item.color }} />
-                <div><strong>{item.name}</strong><small>{item.category} · {item.note}</small></div>
-              </li>)}
-            </ul>
+            </div></details>}
             <h3>穿着建议</h3>
             <ul className="outfit-tips">{detail.tips.map((tip) => <li key={tip}>{tip}</li>)}</ul>
             <p className="outfit-avoid"><b>不适合</b>{detail.avoid}</p>
