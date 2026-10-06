@@ -23,7 +23,7 @@ flowchart TD
 
 | 模块 | 职责 | 技术 |
 | --- | --- | --- |
-| Web | 上传、配置、姿势审核、任务历史、3D 预览 | React / TypeScript / Three.js |
+| Web | 上传、业务选项、姿势审核、任务历史、3D 预览、浏览器外观 | React / TypeScript / Three.js |
 | API | 输入校验、任务/产物接口、配置能力公开 | FastAPI / Pydantic |
 | Preprocessing | 图片归一化、可选前景分割 | Pillow / ONNX Runtime CPU |
 | Pose | 角色 + 姿势图的多图编辑 | 阿里云百炼国内端点 |
@@ -49,3 +49,14 @@ flowchart TD
 ## ADR-003：小模型本地使用
 
 选 U²-NetP ONNX 轻量前景分割，下载后校验权重并脱网运行；记录来源与校验值。不能把轻量分割能力描述成高保真人体重建。
+
+## ADR-004：平台凭据不属于客户端
+
+顾客与商家不能填写或修改模型 API Key、服务 token 和服务地址。平台运维在
+服务端 `.env` / 进程环境变量配置并重启后端，客户端只读取不含凭据及地址的
+`/api/capabilities`。客户端保留生图模型下拉选择与本地主题偏好；不可用服务
+显示“暂不可用”，不引导用户填写密钥。公网 Nginx 和配置了 public origin 的
+FastAPI 都拒绝旧 `/api/settings`，该维护路径不在 OpenAPI 中公开。
+
+账号、计费、权益、支付以及顾客资产的本地化属于后续商业模块，当前状态见
+[实施计划](PLAN.md)；这一边界调整没有迁移或删除存量顾客数据。

@@ -23,13 +23,13 @@ Nginx if they fail. Check status with:
 curl -f http://127.0.0.1:8000/api/health
 ```
 
-Nginx allows `GET` and `PATCH` on `/api/settings`, both protected by the
-same Basic Authentication as the rest of the site. This lets authenticated
-users save provider configuration through the public HTTPS settings page.
-The application still rejects foreign browser origins, validates the
-configuration, and never returns stored provider keys. Unauthenticated
-visitors cannot read or save configuration. Other settings methods remain
-denied.
+Nginx returns 404 for `/api/settings`, regardless of website credentials.
+The API also disables the legacy settings endpoint when `ITP_PUBLIC_ORIGIN`
+is set and omits it from OpenAPI. Customer and merchant clients have no model
+key/token/endpoint configuration page. Operators manage provider credentials
+in the server `.env` or process environment and restart only `itp-api` after
+changes. Deployment must preserve the live `.env`; never replace it with the
+example. Browser appearance preferences remain browser-local.
 
 Merchant registration and login also stay behind the site password. Only the
 JWT-guarded `/api/merchant/me`, `/password`, `/garments` and `/looks` paths
@@ -48,12 +48,11 @@ must persist across restarts: retain an existing value; if absent, add one
 generated secret without replacing other settings. No extra supervisor program
 or model service is needed for merchant accounts and size recommendations.
 
-The current app uses one shared configuration and asset database for all
-authenticated visitors. **Anyone holding the site password can modify
-provider configuration**; give it only to trusted collaborators. This is
-not a separate administrator role. For a public multi-tenant product, add
-account isolation, administrator-only settings authorization and cost
-controls before sharing access with untrusted users.
+The current app still uses a shared asset database for authenticated visitors.
+Provider configuration is operator-owned and cannot be modified through the
+public site. Full customer account isolation, financial controls and personal
+asset storage boundaries are separate commercial-upgrade modules; do not
+interpret removal of the settings page as completion of those modules.
 
 ## Model services
 

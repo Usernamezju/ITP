@@ -1,21 +1,21 @@
 const tencentHints: Record<string, string> = {
-  'ResourceUnavailable.NotExist': '可能是服务未开通或计费状态异常；请在腾讯云控制台核对混元生3D开通状态',
-  'ResourceUnavailable.InArrears': '账号可能欠费；请检查腾讯云账单',
-  'ResourceUnavailable.LowBalance': '账户余额不足；请检查腾讯云账户余额',
-  'AuthFailure.InvalidSecretId': 'Secret ID 无效；请在设置页核对密钥',
-  'AuthFailure.SignatureFailure': '签名校验失败；请核对 Secret ID 和 Secret Key',
-  UnsupportedRegion: '所选地域不支持此接口；请核对设置页中的地域',
-  UnauthorizedOperation: '账号无调用权限；请检查 CAM 授权和服务开通状态',
+  'ResourceUnavailable.NotExist': '可能是服务未开通或计费状态异常；请联系平台维护人员',
+  'ResourceUnavailable.InArrears': '平台建模服务暂不可用，请联系平台维护人员',
+  'ResourceUnavailable.LowBalance': '平台建模服务暂不可用，请联系平台维护人员',
+  'AuthFailure.InvalidSecretId': '平台建模服务连接异常，请联系平台维护人员',
+  'AuthFailure.SignatureFailure': '平台建模服务连接异常，请联系平台维护人员',
+  UnsupportedRegion: '平台建模服务暂不支持此请求，请联系平台维护人员',
+  UnauthorizedOperation: '平台建模服务暂不可用，请联系平台维护人员',
   RequestLimitExceeded: '请求超过频率限制；请稍后再试',
 };
 
 const poseHints: Record<string, string> = {
-  InvalidApiKey: 'API Key 无效；请核对密钥和服务地址',
-  invalid_api_key: 'API Key 无效；请核对密钥和服务地址',
-  'AccessDenied.Unpurchased': '百炼服务或模型尚未开通；请检查账号权限',
-  ModelNotFound: '模型不可用；请核对模型名称和授权',
+  InvalidApiKey: '平台姿势编辑服务连接异常，请联系平台维护人员',
+  invalid_api_key: '平台姿势编辑服务连接异常，请联系平台维护人员',
+  'AccessDenied.Unpurchased': '平台姿势编辑服务暂不可用，请联系平台维护人员',
+  ModelNotFound: '姿势编辑模型暂不可用，请选择原始姿势或稍后再试',
   'Throttling.RateQuota': '请求触发限流；请稍后再试',
-  'Throttling.AllocationQuota': '可用额度不足；请检查百炼配额',
+  'Throttling.AllocationQuota': '平台姿势编辑服务繁忙，请稍后再试',
 };
 
 export function explainJobError(message: string, stage?: string): string {
@@ -26,14 +26,15 @@ export function explainJobError(message: string, stage?: string): string {
     return `${code}：${hint}${requestId}`;
   }
   const tencent = message.match(/腾讯云错误 ([A-Za-z0-9_.-]+)/);
-  if (tencent && !message.includes(`${tencent[1]}：`)) {
+  if (tencent) {
     const hint = tencentHints[tencent[1]] ||
-      (tencent[1].startsWith('InvalidParameter') ? '请求参数不被接受；请核对当前步骤的输入与接口要求' : '请在腾讯云控制台凭 RequestId 查询原因');
-    return message.replace(tencent[0], `${tencent[0]}：${hint}`);
+      (tencent[1].startsWith('InvalidParameter') ? '请求参数不被接受；请核对当前步骤的输入与接口要求' : '服务暂不可用，请联系平台维护人员');
+    const requestId = message.match(/；RequestId=[A-Za-z0-9_.-]+/)?.[0] || '';
+    return `${tencent[0]}：${hint}${requestId}`;
   }
   const pose = message.match(/姿势 API 错误 ([A-Za-z0-9_.-]+)/);
-  if (pose && !message.includes(`${pose[1]}：`)) {
-    return message.replace(pose[0], `${pose[0]}：${poseHints[pose[1]] || '请在百炼控制台核对模型和账号权限'}`);
+  if (pose) {
+    return `${pose[0]}：${poseHints[pose[1]] || '服务暂不可用，请联系平台维护人员'}`;
   }
   return message;
 }

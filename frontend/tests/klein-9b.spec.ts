@@ -72,35 +72,22 @@ test('Klein selection uses independent health and submits the 9B provider', asyn
   expect(submitted?.garment).toEqual({ front: asset.id });
 });
 
-test('9B settings save only their own endpoint and token', async ({ page }) => {
+test('9B unavailable service never asks the customer for an endpoint or token', async ({ page }) => {
   await serveBundle(page);
-  const settings: Record<string, unknown> = {
-    tencent_endpoint: '', tencent_region: '', tencent_model: '3.1',
-    pose_endpoint: '', pose_model: '', seedream_endpoint: '', seedream_model: '',
-    flux_endpoint: '', flux_model: '', flux_klein_endpoint: 'http://127.0.0.1:8788/v1/flux-klein/edit',
-    flux_max_endpoint: '', flux_max_model: 'flux-2-max', flux_max_api_key_set: false,
-    flux_klein_model: 'flux.2-klein-4b', flux_klein_api_key_set: true,
-    flux_klein_9b_endpoint: '', flux_klein_9b_model: 'flux.2-klein-9b',
-    flux_klein_9b_api_key_set: false, gpt_image_endpoint: '', gpt_image_model: '',
-    faceverse_endpoint: '', faceverse_model: '', image_provider: 'so',
-  };
-  let submitted: Record<string, unknown> | undefined;
-  await page.route('**/api/settings', async (route) => {
-    if (route.request().method() === 'PATCH') {
-      submitted = route.request().postDataJSON();
-      settings.flux_klein_9b_endpoint = submitted?.flux_klein_9b_endpoint;
-      settings.flux_klein_9b_api_key_set = true;
-    }
-    await route.fulfill({ json: settings });
+  const requested: string[] = [];
+  await page.route('**/api/settings', (route) => {
+    requested.push(route.request().method());
+    return route.fulfill({ status: 404 });
   });
+  await page.route('**/api/tryon-providers/flux-klein-9b/health', (route) =>
+    route.fulfill({ json: { ready: false, model: 'flux.2-klein-9b' } }));
   await page.goto('/');
-  await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.locator('#flux_klein_9b_endpoint').fill('http://127.0.0.1:8789/v1/flux-klein/edit');
-  await page.locator('#flux_klein_9b_api_key').fill('test-9b-token');
-  await page.getByRole('button', { name: '保存设置' }).click();
-  await expect(page.getByText('配置已保存并生效')).toBeVisible();
-  expect(submitted).toEqual({ flux_klein_9b_endpoint: 'http://127.0.0.1:8789/v1/flux-klein/edit',
-    flux_klein_9b_api_key: 'test-9b-token' });
-  await expect(page.locator('#flux_klein_9b_api_key')).toHaveValue('');
-  await expect(page.locator('#flux_klein_endpoint')).toHaveValue(settings.flux_klein_endpoint as string);
+  await page.getByRole('button', { name: '虚拟试穿', exact: true }).click();
+  await page.locator('select:visible').first().selectOption('flux_klein_9b');
+  await expect(page.getByRole('button', { name: '生成六视图试穿' })).toBeDisabled();
+  await expect(page.getByText('当前生图服务暂不可用，请选择其他可用模型或稍后再试')).toBeVisible();
+  await expect(page.locator('#flux_klein_9b_endpoint')).toHaveCount(0);
+  await expect(page.locator('#flux_klein_9b_api_key')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '打开服务设置' })).toHaveCount(0);
+  expect(requested).toEqual([]);
 });

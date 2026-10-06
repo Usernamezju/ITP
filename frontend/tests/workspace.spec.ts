@@ -56,8 +56,8 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
   await page.getByRole('button', { name: '人体建模' }).click();
   await page.getByRole('button', { name: '开始生成' }).click();
   await expect(page.getByText('请上传角色图片')).toBeVisible();
-  await expect(page.getByText('请在设置页填写腾讯云服务地址、地域、Secret ID 和 Secret Key')).toBeVisible();
-  if (!isMobile) await expect(page.getByText('先创作，稍后连接')).toBeVisible();
+  await expect(page.getByText('人体建模服务暂不可用，请稍后再试')).toBeVisible();
+  if (!isMobile) await expect(page.getByRole('heading', { name: '服务状态' })).toBeVisible();
 
   const image = await imageFromCanvas(page);
   await page.getByLabel('上传上传角色图片').setInputFiles({
@@ -83,53 +83,23 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
   await expect(page.getByText('1 三角面')).toBeVisible();
   await page.getByRole('button', { name: '任务记录' }).click();
   await expect(page.getByText('第一件作品，从这里开始')).toBeVisible();
-  await page.getByRole('button', { name: '设置', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '模型服务' })).toBeVisible();
-  await expect(page.locator('#faceverse_endpoint')).toBeVisible();
-  await expect(page.getByLabel('Secret Key', { exact: true })).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '工作台主题' })).toBeVisible();
+  await expect(page.locator('#faceverse_endpoint')).toHaveCount(0);
+  await expect(page.getByLabel('Secret Key', { exact: true })).toHaveCount(0);
 });
 
-test('settings page saves and clears a secret without displaying its stored value', async ({ page }) => {
-  const stored = {
-    tencent_endpoint: '', tencent_region: '', tencent_model: '3.1',
-    tencent_secret_id_set: false, tencent_secret_key_set: false,
-    pose_endpoint: '', pose_model: 'qwen-image-edit-plus-2025-12-15', pose_api_key_set: false,
-    seedream_endpoint: '', seedream_model: 'doubao-seedream-5-0-flash-260915',
-    seedream_api_key_set: false,
-    flux_endpoint: '', flux_model: 'flux-2-pro', flux_api_key_set: false,
-    flux_max_endpoint: '', flux_max_model: 'flux-2-max', flux_max_api_key_set: false,
-    flux_klein_endpoint: '', flux_klein_model: 'flux.2-klein-4b', flux_klein_api_key_set: false,
-    flux_klein_9b_endpoint: '', flux_klein_9b_model: 'flux.2-klein-9b',
-    flux_klein_9b_api_key_set: false,
-    gpt_image_endpoint: '', gpt_image_model: 'gpt-image-2', gpt_image_api_key_set: false,
-    faceverse_endpoint: '', faceverse_model: 'faceverse-v4', faceverse_api_key_set: false,
-    image_provider: 'so', unsplash_access_key_set: false, pixabay_api_key_set: false,
-  };
-  const sent: Record<string, string>[] = [];
-  await page.route('**/api/settings', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: stored });
-      return;
-    }
-    const body = route.request().postDataJSON() as Record<string, string>;
-    sent.push(body);
-    if (body.tencent_endpoint !== undefined) stored.tencent_endpoint = body.tencent_endpoint;
-    if (body.tencent_region !== undefined) stored.tencent_region = body.tencent_region;
-    if (body.tencent_secret_key !== undefined) stored.tencent_secret_key_set = Boolean(body.tencent_secret_key);
-    await route.fulfill({ json: stored });
+test('appearance is browser-local and no provider credentials are requested', async ({ page }) => {
+  let settingsRequests = 0;
+  await page.route('**/api/settings', (route) => {
+    settingsRequests++;
+    return route.fulfill({ status: 404 });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.locator('#tencent_endpoint').fill('ai3d.tencentcloudapi.com');
-  await page.locator('#tencent_region').fill('ap-guangzhou');
-  await page.getByLabel('Secret Key', { exact: true }).fill('private-value');
-  await page.getByRole('button', { name: '保存设置' }).click();
-  await expect(page.getByText('配置已保存并生效')).toBeVisible();
-  await expect(page.getByLabel('Secret Key', { exact: true })).toHaveValue('');
-  expect(sent[0].tencent_secret_key).toBe('private-value');
-  await page.getByLabel('清除已保存的Secret Key').check();
-  await page.getByRole('button', { name: '保存设置' }).click();
-  await expect(page.getByLabel('Secret Key', { exact: true })).toBeEnabled();
-  expect(sent[1].tencent_secret_key).toBe('');
-  expect(sent[1].tencent_endpoint).toBeUndefined();
+  await page.getByRole('button', { name: '外观', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '工作台主题' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '模型服务' })).toHaveCount(0);
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '保存设置' })).toHaveCount(0);
+  expect(settingsRequests).toBe(0);
 });

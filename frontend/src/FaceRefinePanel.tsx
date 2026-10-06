@@ -3,8 +3,8 @@ import { Download, LoaderCircle, ScanFace } from 'lucide-react';
 import { api, fileUrl, post, type Asset, type FaceRefinement } from './api';
 import './FaceRefinePanel.css';
 
-export function FaceRefinePanel({ jobId, configured, onSettings }: {
-  jobId: string; configured: boolean; onSettings: () => void;
+export function FaceRefinePanel({ jobId, configured }: {
+  jobId: string; configured: boolean;
 }) {
   const [photo, setPhoto] = useState<Asset | null>(null);
   const [task, setTask] = useState<FaceRefinement | null>(null);
@@ -46,8 +46,8 @@ export function FaceRefinePanel({ jobId, configured, onSettings }: {
   }
 
   return <section className="face-refine-panel"><h3><ScanFace size={19} /> 脸部精细建模</h3>
-    <p>3D 已完成。上传原始高清正面人物照片，发送到你的 FaceVerse 服务器进行人脸重建与无缝融合；原模型始终保留。</p>
-    {!configured && <p className="face-refine-note">FaceVerse 服务器未配置。<button className="text-button" onClick={onSettings}>前往设置</button></p>}
+    <p>3D 已完成。上传原始高清正面人物照片，进行人脸重建与无缝融合；原模型始终保留。</p>
+    {!configured && <p className="face-refine-note">脸部精修服务暂不可用；不影响原模型预览与下载。</p>}
     <label className="face-refine-upload">{uploading ? <LoaderCircle size={17} className="spin" /> : <ScanFace size={17} />}
       {photo ? `${photo.width} × ${photo.height} 高清照片已上传（点击更换）` : '上传原始高清正面照片'}
       <input type="file" accept="image/png,image/jpeg,image/webp" disabled={uploading}

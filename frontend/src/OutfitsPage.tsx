@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Box, Check, ChevronDown, Clock3, Layers3, LoaderCircle, RefreshCw,
-  RotateCcw, Ruler, Settings2, Sparkles, Unplug, X } from 'lucide-react';
+  RotateCcw, Ruler, Sparkles, Unplug, X } from 'lucide-react';
 import { api, type BodyAnalysis, type BodyField, type BodyValue, type Capabilities, type Job,
   type Outfit, type OutfitFilterOption, type OutfitImages, type OutfitResponse } from './api';
 import { LookBoard } from './LookBoard';
 import './OutfitsPage.css';
 
 const imageProviderLabels: Record<string, string> = {
-  so: '360 图片 · 免 key', unsplash: 'Unsplash', pixabay: 'Pixabay',
+  so: '360 图片', unsplash: 'Unsplash', pixabay: 'Pixabay',
 };
 
 function imageProviderLabel(provider?: string): string {
@@ -280,8 +280,8 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
   </div>;
 }
 
-export function OutfitsPage({ caps, jobs, onSettings, onModeling }: {
-  caps: Capabilities | null; jobs: Job[]; onSettings: () => void; onModeling: () => void;
+export function OutfitsPage({ caps, jobs, onModeling }: {
+  caps: Capabilities | null; jobs: Job[]; onModeling: () => void;
 }) {
   const modelJobs = useMemo(
     () => jobs.filter((item) => item.artifacts.some((artifact) => artifact.format === 'GLB')),
@@ -410,13 +410,11 @@ export function OutfitsPage({ caps, jobs, onSettings, onModeling }: {
         <div className="service-line"><span>本地 · 穿搭目录</span><b className="ready">已就绪</b></div>
         <div className="service-line"><span>图片检索</span>
           <b className={caps?.outfit_images ? 'ready' : ''}>
-            {imageProviderLabel(caps?.image_provider) || '待配置'}</b></div>
+            {imageProviderLabel(caps?.image_provider) || '暂不可用'}</b></div>
         <div className="service-line"><span>本地 · 去背景</span>
-          <b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '已就绪' : '待安装'}</b></div>
+          <b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '可用' : '暂不可用'}</b></div>
         <div className="service-line"><span>混元 · 图生 3D</span>
-          <b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div>
-        <button className="text-button" type="button" onClick={onSettings}>
-          <Settings2 size={13} /> 打开服务设置 <ArrowRight size={13} /></button>
+          <b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '可用' : '暂不可用'}</b></div>
       </div>
       <div className="outfits-inspector-heading"><h3>可用于分析的模型</h3><span>{modelJobs.length}</span></div>
       {modelJobs.length ? <div className="outfits-model-list">
@@ -429,7 +427,7 @@ export function OutfitsPage({ caps, jobs, onSettings, onModeling }: {
       </div> : <div className="outfits-inspector-empty"><Box size={22} strokeWidth={1.3} />
         <span>还没有三维模型</span><small>生成后可基于实测比例推荐</small></div>}
       <div className="inspector-note"><span>推荐说明</span>
-        <p>推荐基于本地精选目录与模型比例估算，仅供搭配参考；穿搭图片按单品与风格从图片检索服务获取并缓存在本机，版权归原作者所有。免 key 的 360 图片在短时间密集请求后可能暂时拒绝服务，此时卡片显示配色示意并给出重试；需要更稳定或授权更清晰的来源，可在设置页切换到 Unsplash 或 Pixabay。</p></div>
+        <p>推荐基于精选目录与模型比例估算，仅供搭配参考；穿搭图片版权归原作者所有。图片检索暂不可用时显示配色示意，可稍后重试。</p></div>
     </aside>
 
     <dialog ref={dialog} className="outfit-dialog" aria-label={detail ? `${detail.name} 穿搭详情` : '穿搭详情'}

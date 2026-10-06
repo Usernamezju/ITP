@@ -3,7 +3,7 @@ import { ArrowDownToLine, ArrowRight, Box, Check, ChevronRight, CircleHelp,
   Clock3, FileBox, FolderOpen, ImagePlus, Layers3, LoaderCircle, Plus, Settings2, Shirt,
   SlidersHorizontal, Sparkles, Store, Unplug, Upload, X } from 'lucide-react';
 import { api, post, fileUrl, type Asset, type Capabilities, type Job, type PoseMode } from './api';
-import { SettingsPage } from './SettingsPage';
+import { AppearancePage } from './AppearancePage';
 import { explainJobError } from './errors';
 import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type ContrastTheme } from './theme';
 import { Viewer } from './Viewer';
@@ -86,7 +86,7 @@ export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'settings'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'appearance'>('workspace');
   const [error, setError] = useState('');
   const [colorTheme, setColorTheme] = useState<ColorTheme>(loadColorTheme);
   const [contrastTheme, setContrastTheme] = useState<ContrastTheme>(loadContrastTheme);
@@ -155,8 +155,8 @@ export default function App() {
   const generateIssues = [
     ...(!front ? ['请上传角色图片'] : []),
     ...(uploadCount ? ['请等待图片上传完成'] : []),
-    ...(!caps ? ['请等待本地服务连接'] : !caps.geometry ? ['请在设置页填写腾讯云服务地址、地域、Secret ID 和 Secret Key'] : []),
-    ...(poseMode !== 'original' && caps && !caps.pose ? ['请在设置页填写千问服务地址和 API Key'] : []),
+    ...(!caps ? ['正在连接服务，请稍候'] : !caps.geometry ? ['人体建模服务暂不可用，请稍后再试'] : []),
+    ...(poseMode !== 'original' && caps && !caps.pose ? ['姿势编辑服务暂不可用，可选择原始姿势'] : []),
     ...(poseMode === 'custom' && !reference ? ['请上传姿势参考图'] : []),
     ...(Object.values(views).some(Boolean) && !viewsConsistent ? ['请确认所有视角为同一人物、同一服装和同一姿势'] : []),
     ...(rig && !neutral ? ['请确认自动绑骨所需的中性姿态'] : []),
@@ -202,7 +202,7 @@ export default function App() {
       <button className={tab === 'merchant' ? 'selected' : ''} aria-label="商家后台" title="商家后台" onClick={() => setTab('merchant')}><Store size={21} /></button>
       <button className={tab === 'history' ? 'selected' : ''} aria-label="任务记录" title="任务记录" onClick={() => setTab('history')}><Clock3 size={21} /></button>
       <div className="rail-spacer" />
-      <button className={tab === 'settings' ? 'selected' : ''} aria-label="设置" title="设置" onClick={() => setTab('settings')}><Settings2 size={21} /></button>
+      <button className={tab === 'appearance' ? 'selected' : ''} aria-label="外观" title="外观" onClick={() => setTab('appearance')}><Settings2 size={21} /></button>
       <a href="/docs" target="_blank" rel="noreferrer" aria-label="接口文档" title="接口文档"><CircleHelp size={20} /></a>
       <div className="avatar">IT</div>
     </aside>
@@ -210,12 +210,12 @@ export default function App() {
       <header className="topbar"><div className="wordmark">ITP <span>STUDIO</span><i /> <span className="breadcrumb">创作空间</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 本地工作台</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button></div></header>
-      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'outfits' ? '穿搭推荐' : tab === 'merchant' ? '商家后台' : tab === 'history' ? '你的创作记录' : '服务设置'}</h1></div></div>
+      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'outfits' ? '穿搭推荐' : tab === 'merchant' ? '商家后台' : tab === 'history' ? '你的创作记录' : '外观设置'}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
-      {tab === 'settings' ? <SettingsPage onCapabilities={setCaps} colorTheme={colorTheme} contrastTheme={contrastTheme}
+      {tab === 'appearance' ? <AppearancePage colorTheme={colorTheme} contrastTheme={contrastTheme}
         onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'tryon' ?
-        <TryOnPage caps={caps} onSettings={() => setTab('settings')} onContinue={(created) => { setJobs((list) => [created, ...list]); chooseJob(created); }} /> : tab === 'outfits' ?
-        <OutfitsPage caps={caps} jobs={jobs} onSettings={() => setTab('settings')} onModeling={() => setTab('workspace')} /> : tab === 'merchant' ?
+        <TryOnPage caps={caps} onContinue={(created) => { setJobs((list) => [created, ...list]); chooseJob(created); }} /> : tab === 'outfits' ?
+        <OutfitsPage caps={caps} jobs={jobs} onModeling={() => setTab('workspace')} /> : tab === 'merchant' ?
         <MerchantPage /> : tab === 'history' ? <section className="history-page">
         <div className="section-heading"><h2>任务记录 <span>{jobs.length}</span></h2><small>{active} 个待处理任务</small></div>
         {!jobs.length ? <div className="history-empty"><FolderOpen size={42} strokeWidth={1} /><h3>第一件作品，从这里开始</h3><p>你的生成任务与中间产物会保存在本地。</p><button className="button" onClick={() => setTab('workspace')}>前往工作台 <ArrowRight size={16} /></button></div> :
@@ -248,8 +248,8 @@ export default function App() {
           </div>
           <div className="generate-footer"><button className="generate-button" disabled={submitting} onClick={() => void generate()}>{submitting ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />} 开始生成<ArrowRight size={16} /></button>
             {showGenerateIssues && generateIssues.length > 0 && <div className="generate-issues" role="alert"><strong>还需要完成：</strong><ul>{generateIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
-              {generateIssues.some((issue) => issue.includes('设置页')) && <button type="button" className="text-button" onClick={() => setTab('settings')}>前往设置 <ArrowRight size={13} /></button>}</div>}
-            <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '图片可本地预处理，请在设置页填写 API 信息' : poseMode !== 'original' && !caps.pose ? '姿势编辑服务待配置' : '所选云端生成与处理步骤可能产生费用'}</small></div>
+              </div>}
+            <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '人体建模暂不可用，仍可上传图片或导入 GLB' : poseMode !== 'original' && !caps.pose ? '姿势编辑暂不可用，可选择原始姿势' : '所选云端生成与处理步骤可能产生费用'}</small></div>
         </section>
         <section className="canvas-panel"><div className="canvas-heading"><div className="canvas-identity"><div className="canvas-title"><span className="live-dot" /><strong>{localModel?.name || job?.name || '三维预览'}</strong><span className="muted">/ {localModel ? '本地导入' : '工作场景'}</span></div>
           {job && !localModel && <dl className="asset-details" aria-label="资产生成参数">
@@ -286,10 +286,10 @@ export default function App() {
             {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.asset_id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.asset_id); }}>预览</button>}<a href={`${fileUrl(item.asset_id)}?download=true`} download aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
           </div>
           {job?.state === 'succeeded' && job.artifacts.some((item) => item.format === 'GLB') &&
-            <FaceRefinePanel jobId={job.id} configured={Boolean(caps?.faceverse)} onSettings={() => setTab('settings')} />}
+            <FaceRefinePanel jobId={job.id} configured={Boolean(caps?.faceverse)} />}
         </section>
         <aside className="inspector"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
-          <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>{caps?.geometry ? '服务已配置' : '先创作，稍后连接'}</h3><p>使用国内模型服务，将图片转为可用的三维资产。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '已配置' : '待配置'}</b></div><div className="service-line"><span>本地 · 去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '已就绪' : '待安装'}</b></div><button className="text-button" onClick={() => setTab('settings')}>打开服务设置 <ArrowRight size={13} /></button></div>
+          <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>服务状态</h3><p>将图片转为可用的三维资产，无需配置接口。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '可用' : '暂不可用'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '可用' : '暂不可用'}</b></div><div className="service-line"><span>去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '可用' : '暂不可用'}</b></div></div>
           <div className="recent-heading"><h3>最近任务</h3><button className="text-button" onClick={() => setTab('history')}>全部 <ChevronRight size={12} /></button></div>
           {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={fileUrl(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${jobState(item).className}`}>{jobState(item).label}</small></span><ChevronRight size={12} /></button>)}
           {!jobs.length && <div className="recent-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>每一步进度都会保存在这里</small></div>}

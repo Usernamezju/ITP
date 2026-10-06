@@ -361,6 +361,15 @@ def create_app(
     @app.middleware("http")
     async def local_requests(request: Request, call_next):
         origin = request.headers.get("origin")
+        if request.url.path.rstrip("/") == "/api/settings" and (
+            app.state.settings.public_origin or origin
+            or request.headers.get("x-forwarded-for")
+            or request.headers.get("x-forwarded-proto")
+        ):
+            return JSONResponse({"detail": "Not found"}, status_code=404, headers={
+                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "no-referrer",
+            })
         allowed = {
             "http://localhost:8000",
             "http://127.0.0.1:8000",
@@ -427,11 +436,21 @@ def create_app(
     def get_flux_klein_9b_health():
         return flux_klein_health("flux_klein_9b")
 
-    @app.get("/api/settings")
+    def require_local_operator(request: Request):
+        # Legacy CLI maintenance only. Never expose shared credentials through
+        # a public deployment or an API schema consumed by customer clients.
+        if (app.state.settings.public_origin or request.headers.get("origin")
+                or request.headers.get("x-forwarded-for")
+                or request.headers.get("x-forwarded-proto")):
+            raise HTTPException(404, "Not found")
+
+    @app.get("/api/settings", include_in_schema=False,
+             dependencies=[Depends(require_local_operator)])
     def get_provider_settings():
         return public_settings(app.state.settings)
 
-    @app.patch("/api/settings")
+    @app.patch("/api/settings", include_in_schema=False,
+               dependencies=[Depends(require_local_operator)])
     def update_provider_settings(body: ImageSettingsUpdate):
         with settings_lock:
             provided = body.model_dump(exclude_unset=True)

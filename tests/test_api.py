@@ -260,7 +260,7 @@ def test_web_settings_reject_invalid_values_and_foreign_origin(tmp_path, monkeyp
         assert client.patch(
             "/api/settings", json={"pose_api_key": "private"},
             headers={"Origin": "https://evil.example"},
-        ).status_code == 403
+        ).status_code == 404
         invalid = client.patch("/api/settings", json={
             "pose_endpoint": "https://evil.example/path", "pose_api_key": "private",
         })
