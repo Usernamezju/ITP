@@ -83,8 +83,11 @@ the payment module uses `cryptography` and `qrcode`. No additional daemon or
 database migration command is needed; tables are added on API startup.
 Preserve the live environment and back up `merchants.sqlite3` with SQLite's
 online backup API. Operator-only payment settings are listed in `.env.example`
-and `docs/modules/PAYMENTS.md`. Missing real merchant credentials disable payment;
-production must never enable mock payments. Do not test against live payment APIs.
+and `docs/modules/PAYMENTS.md`; an administrator can also fill them in
+`/admin` → 支付配置, which rewrites only those `.env` keys (mode 600) and
+reloads the channels in place, so `configure.py` keeps them on every later run.
+Missing real merchant credentials disable payment; production must never enable
+mock payments. Do not test against live payment APIs.
 
 Public payment methods and callbacks open directly; callbacks require official
 signature verification. Account order and wallet routes require JWTs. Validate
