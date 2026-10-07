@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Activity, AlertCircle, Database, KeyRound, LoaderCircle, LogOut, Package,
+  Activity, AlertCircle, Database, KeyRound, LoaderCircle, LogOut, MessageSquarePlus, Package,
   RefreshCw, ShieldCheck, Sparkles, Users, Wallet,
 } from 'lucide-react';
 import {
-  ApiError, type AdminAccount, type AdminJobs, type AdminOrder, type AdminPaymentDocument,
+  ApiError, type AdminAccount, type AdminFeedback, type AdminJobs, type AdminOrder, type AdminPaymentDocument,
   type AdminPaymentUpdate, type AdminProductAiDocument, type AdminProductAiUpdate,
   type AdminProviderSettings, type AdminStatus, type AdminUsage,
 } from './api';
@@ -208,6 +208,10 @@ function AdminDashboard({ account, onSignOut }: { account: Account; onSignOut: (
         render={(data) => <StatusSection status={data} />} />
       <Section title="账号与商户" icon={<Users size={15} />} loadable={sections.accounts}
         render={(data) => <AccountsSection accounts={data} />} />
+      <section className="admin-section wide">
+        <h2 className="admin-section-title"><MessageSquarePlus size={15} />用户反馈</h2>
+        <FeedbackSection />
+      </section>
       <Section title="平台数据统计" icon={<Database size={15} />} loadable={sections.usage}
         render={(data) => <UsageSection usage={data} />} />
       <Section title="订单与支付" icon={<Wallet size={15} />} loadable={sections.orders}
@@ -666,6 +670,66 @@ function AccountsSection({ accounts }: { accounts: Accounts }) {
         when(item.created),
       ])
     } />
+  </>;
+}
+
+/** How many reports one page of the operator inbox holds. */
+const FEEDBACK_PAGE = 20;
+
+/**
+ * The user feedback inbox.  It loads its own page because it is the one
+ * section an operator pages through; nothing here is writable, so a report
+ * stays exactly as its author submitted it.
+ */
+function FeedbackSection() {
+  const [data, setData] = useState<AdminFeedback | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      setData(await accountApi<AdminFeedback>(
+        `/api/admin/feedback?limit=${FEEDBACK_PAGE}&offset=${offset}`));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) sessionToken.write('');
+      setData(null);
+      setError(err instanceof Error ? err.message : '读取失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [offset]);
+  useEffect(() => { void load(); }, [load]);
+
+  if (error) return <p role="alert" className="admin-error">
+    <AlertCircle size={14} />本节读取失败：{error}</p>;
+  if (!data) return <p className="muted">{loading ? '正在读取用户反馈…' : '暂时无法读取反馈'}</p>;
+  const pages = Math.max(1, Math.ceil(data.total / FEEDBACK_PAGE));
+  return <>
+    <Kpis items={[
+      { label: '反馈总数', value: `${data.total} 条` },
+      { label: '本页显示', value: `${data.items.length} 条` },
+    ]} />
+    <p className="admin-note">这里只读：反馈按提交时间倒序排列，未登录访客的条目显示为「匿名」，
+      账号信息由服务端从登录令牌读取，不是提交内容的一部分。</p>
+    <Table head={['提交时间', '账号', '类型', '内容', '联系方式', '来源页面']} empty="还没有用户反馈"
+      rows={data.items.map((item) => [
+        when(item.created),
+        item.account_name || '匿名',
+        item.kind,
+        <span className="admin-feedback-body">{item.body}</span>,
+        item.contact || '—',
+        item.page || '—',
+      ])} />
+    <div className="admin-pagination">
+      <button type="button" className="button small" disabled={loading || offset === 0}
+        onClick={() => setOffset((value) => Math.max(0, value - FEEDBACK_PAGE))}>上一页</button>
+      <span>第 {Math.floor(offset / FEEDBACK_PAGE) + 1} / {pages} 页 · 共 {data.total} 条</span>
+      <button type="button" className="button small"
+        disabled={loading || offset + FEEDBACK_PAGE >= data.total}
+        onClick={() => setOffset((value) => value + FEEDBACK_PAGE)}>下一页</button>
+    </div>
   </>;
 }
 

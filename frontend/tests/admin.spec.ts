@@ -84,6 +84,18 @@ const jobs = {
   note: '仅显示服务端当前保留的任务；顾客确认保存后服务端副本即被删除，没有历史任务记录。',
 };
 
+const feedback = {
+  total: 2,
+  items: [
+    { id: 'f'.repeat(32), user_id: 'a'.repeat(32), account_name: 'alice', role: 'customer',
+      kind: '问题反馈', body: '手机端提交按钮太小，点不动。', contact: 'fan@example.com',
+      page: '/outfits', created: 1790671818 },
+    { id: 'e'.repeat(32), user_id: null, account_name: null, role: null,
+      kind: '功能建议', body: '希望支持批量导入商品。', contact: null, page: '/merchant',
+      created: 1790671718 },
+  ],
+};
+
 /** One dashboard section, so equal-looking values elsewhere cannot match. */
 function section(page: Page, title: string) {
   return page.locator('.admin-section', { has: page.getByRole('heading', { name: title }) });
@@ -162,7 +174,7 @@ async function openAdmin(page: Page, options: Options = {}) {
   const body: Record<string, unknown> = {
     '/api/admin/status': status, '/api/admin/settings': settings,
     '/api/admin/accounts': accounts, '/api/admin/usage': usage,
-    '/api/admin/orders': orders, '/api/admin/jobs': jobs,
+    '/api/admin/orders': orders, '/api/admin/jobs': jobs, '/api/admin/feedback': feedback,
     '/api/admin/payments': payments, '/api/admin/product-ai': productAi,
   };
   let token = startSignedIn ? 'admin-token' : '';
@@ -223,7 +235,8 @@ test('an admin signs in and reads the whole console', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: '系统状态与平台数据' })).toBeVisible();
   await expect(page.getByText('已登录：运维（ops · 管理员）')).toBeVisible();
-  for (const title of ['运行状态', '模型服务配置', '账号与商户', '平台数据统计', '订单与支付', '服务端任务']) {
+  for (const title of ['运行状态', '模型服务配置', '账号与商户', '用户反馈', '平台数据统计',
+    '订单与支付', '服务端任务']) {
     await expect(page.getByRole('heading', { name: title })).toBeVisible();
   }
   // Status: platform version, the active photo source and one probe result.
@@ -257,6 +270,24 @@ test('an admin signs in and reads the whole console', async ({ page }) => {
   // The console is a real page: a refresh keeps the signed-in admin on it.
   await page.reload();
   await expect(page.getByRole('heading', { name: '系统状态与平台数据' })).toBeVisible();
+});
+
+test('the operator reads user feedback, anonymous reports included', async ({ page }) => {
+  const calls = await openAdmin(page);
+  const inbox = section(page, '用户反馈');
+  await expect(inbox.locator('.admin-kpi', { hasText: '反馈总数' })).toContainText('2 条');
+  await expect(inbox.getByRole('cell', { name: '问题反馈' })).toBeVisible();
+  await expect(inbox.getByText('手机端提交按钮太小，点不动。')).toBeVisible();
+  await expect(inbox.getByText('fan@example.com')).toBeVisible();
+  // A report from a visitor without an account is still readable and labelled.
+  await expect(inbox.getByRole('cell', { name: '匿名' })).toBeVisible();
+  await expect(inbox.getByText('希望支持批量导入商品。')).toBeVisible();
+  await expect(inbox.getByText('第 1 / 1 页 · 共 2 条')).toBeVisible();
+  // The newest first page is what the console asks the server for.
+  expect(calls).toContain('/api/admin/feedback');
+  // Reading the inbox is all an operator can do: no button posts anywhere.
+  await expect(inbox.getByRole('button', { name: '上一页' })).toBeDisabled();
+  await expect(inbox.getByRole('button', { name: '下一页' })).toBeDisabled();
 });
 
 test('a signed-in customer is refused and no admin endpoint is called', async ({ page }) => {

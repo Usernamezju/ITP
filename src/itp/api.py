@@ -417,6 +417,8 @@ def create_app(
     app.state.payments = PaymentService(merchants, settings, transport=payment_transport)
     app.state.product_ai = product_ai
     app.include_router(payment_router(app.state.payments))
+    from itp.feedback import feedback_router
+    app.include_router(feedback_router(merchants))
     from itp.product_clicks import click_router
     app.include_router(click_router(merchants))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])

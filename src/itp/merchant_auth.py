@@ -288,6 +288,25 @@ def current_user(
     return merchant
 
 
+def current_user_optional(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> dict | None:
+    """The signed-in account, or None when the caller has no usable session.
+
+    Endpoints that must stay open to visitors (feedback, for one) use this: an
+    expired or revoked token is treated as "not signed in" instead of blocking
+    the request, and nothing about the caller is guessed from the body.
+    """
+    token = credentials.credentials if credentials else bearer_token(request)
+    if not token:
+        return None
+    try:
+        return current_user(request, credentials)
+    except HTTPException:
+        return None
+
+
 def current_merchant(user: Annotated[dict, Depends(current_user)]) -> dict:
     """All merchant business endpoints require an authoritative merchant role."""
     if user.get("role") != "merchant":

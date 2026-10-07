@@ -714,6 +714,8 @@ class MerchantStore:
         self.commerce = CommerceStore(self, settings)
         from itp.product_clicks import ProductClicks
         self.clicks = ProductClicks(self)
+        from itp.feedback import FeedbackStore
+        self.feedback = FeedbackStore(self)
 
     @staticmethod
     def _schema_accepts_admin(conn) -> bool:

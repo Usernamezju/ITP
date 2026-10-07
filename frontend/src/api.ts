@@ -184,6 +184,12 @@ export type AdminTransientJob = {
   id: string; owner_id: string; state: string; created: number;
   model: string | null; provider: string | null;
 };
+/** One user report, as the operator inbox returns it (newest first). */
+export type AdminFeedbackItem = {
+  id: string; user_id: string | null; account_name: string | null; role: string | null;
+  kind: string; body: string; contact: string | null; page: string | null; created: number;
+};
+export type AdminFeedback = { total: number; items: AdminFeedbackItem[] };
 export type AdminJobs = {
   jobs: AdminJob[]; tryons: AdminTransientJob[];
   face_refinements: AdminTransientJob[]; note: string;
@@ -204,6 +210,8 @@ export class ApiError extends Error {
 const AUTH_ROUTES = new RegExp('^/api/(' + [
   'auth/', 'account/', 'merchant/', 'admin(?:/|$)', 'jobs(?:/|$)', 'tryons(?:/|$)',
   'assets(?:/|$)', 'face-photos', 'model-assets', 'face-refinements', 'outfits/recommend',
+  // Feedback attaches the account when there is a session, and works without one.
+  'feedback(?:/|$)',
 ].join('|') + ')');
 
 export function authHeaders(init?: HeadersInit): Headers {

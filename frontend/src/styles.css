@@ -181,6 +181,13 @@ input[type=checkbox] { accent-color: var(--commerce-action); }
 }
 @media(max-width:380px) { .wordmark>span { display:none; } }
 /* Page-level purchase actions outrank the shared secondary button rule. */
+/* The feedback entry sits beside the avatar: icon plus label, icon only on a phone. */
+.feedback-trigger { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:0 12px; border:1px solid var(--commerce-border); border-radius:8px; background:var(--theme-surface); color:var(--theme-text); font-size:14px; font-weight:500; }
+.feedback-trigger:hover:not(:disabled) { border-color:var(--commerce-action); color:var(--commerce-action); filter:none; }
+@media(max-width:760px) {
+  .feedback-trigger { min-width:44px; min-height:44px; padding:0 10px; }
+  .feedback-trigger span { display:none; }
+}
 .outfit-buy>.button, .outfit-card-commerce>.button { background:var(--commerce-action); border-color:var(--commerce-action); color:#fff; font-size:14px; }
 .outfit-buy>.button:hover:not(:disabled), .outfit-card-commerce>.button:hover:not(:disabled) { background:var(--commerce-action-hover); filter:none; }
 .outfit-price-note { color:var(--theme-muted); font-size:12px; font-weight:400; }

@@ -1,0 +1,62 @@
+/* The 反馈 entry: a native dialog, centred on a desktop and a drawer on a phone. */
+
+.feedback-dialog {
+  width: min(94vw, 540px);
+  max-height: 92vh;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  background: var(--theme-surface);
+  color: var(--theme-text);
+  box-shadow: 0 24px 70px #0004;
+}
+.feedback-dialog::backdrop { background: #000000a6; }
+.feedback-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--theme-border);
+}
+.feedback-heading strong { display: block; font-size: 16px; font-weight: 600; }
+.feedback-heading small { display: block; margin-top: 6px; color: var(--theme-muted); font-size: 12px; line-height: 1.6; }
+.feedback-heading button { display: grid; place-items: center; padding: 6px; border-radius: 6px; color: var(--theme-muted); }
+.feedback-heading button:hover:not(:disabled) { color: var(--theme-text); background: var(--theme-soft); }
+
+.feedback-form { display: flex; flex-direction: column; gap: 16px; padding: 18px 20px 20px; max-height: calc(92vh - 73px); overflow-y: auto; }
+.feedback-kinds { margin: 0; padding: 0; border: 0; }
+.feedback-kinds legend { padding: 0; margin-bottom: 9px; font-size: 14px; font-weight: 600; }
+.feedback-kinds > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.feedback-kinds button {
+  min-height: 40px; padding: 8px 14px;
+  border: 1px solid var(--theme-border); border-radius: 8px;
+  background: var(--theme-surface); color: var(--theme-text); font-size: 14px;
+}
+.feedback-kinds button.active { border-color: var(--theme-primary); background: var(--theme-soft); color: var(--theme-primary); font-weight: 600; }
+.feedback-field { display: flex; flex-direction: column; gap: 7px; font-size: 14px; }
+.feedback-field > span { display: flex; align-items: baseline; gap: 6px; font-weight: 600; }
+.feedback-field > span em { font-style: normal; font-size: 12px; font-weight: 400; color: var(--theme-muted); }
+.feedback-field textarea { min-height: 108px; line-height: 1.7; padding: 10px 11px; }
+.feedback-count { display: flex; justify-content: space-between; gap: 10px; color: var(--theme-muted); font-size: 12px; }
+.feedback-too-short { color: var(--commerce-danger); }
+.feedback-identity { margin: 0; color: var(--theme-muted); font-size: 12px; line-height: 1.7; }
+.feedback-error { margin: 0; color: var(--commerce-danger); font-size: 13px; line-height: 1.7; }
+.feedback-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.feedback-actions .button { min-height: 44px; min-width: 108px; }
+
+.feedback-done { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 34px 22px 24px; text-align: center; }
+.feedback-done > svg { color: var(--commerce-success); }
+.feedback-done strong { font-size: 17px; }
+.feedback-done p { margin: 0; color: var(--theme-muted); font-size: 13px; line-height: 1.8; }
+.feedback-done .feedback-actions { margin-top: 12px; }
+
+@media (max-width: 760px) {
+  /* A drawer: full width, pinned to the bottom of the screen. */
+  .feedback-dialog {
+    width: 100%; max-width: 100%; max-height: 88vh;
+    margin: auto auto 0;
+    border-radius: 14px 14px 0 0;
+  }
+  .feedback-form { max-height: calc(88vh - 73px); }
+  .feedback-actions { flex-wrap: wrap; }
+  .feedback-actions .button { flex: 1 1 140px; }
+}

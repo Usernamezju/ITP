@@ -1,7 +1,9 @@
-import { Box, CircleHelp, Clock3, Layers3, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
+import { Box, CircleHelp, Clock3, Layers3, MessageSquarePlus, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AccountAvatar } from './AccountPage';
 import { CustomerProvider, useCustomer } from './customerState';
+import { FeedbackDialog } from './FeedbackDialog';
 
 /** The heading each customer address shows; unknown paths fall back to the workspace. */
 const TITLES: Record<string, string> = {
@@ -31,6 +33,7 @@ function CustomerChrome() {
   const { account, error, setError, newProject, uploadCount } = useCustomer();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const [feedback, setFeedback] = useState(false);
 
   return <div className="app-shell">
     <aside className="rail">
@@ -49,6 +52,9 @@ function CustomerChrome() {
       <header className="topbar"><div className="wordmark">ITP <span>穿搭空间</span><i /> <span className="breadcrumb">发现适合你的穿搭</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 素材保存在本机</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button>
+          <button type="button" className="feedback-trigger" aria-haspopup="dialog"
+            aria-label="意见反馈" onClick={() => setFeedback(true)}>
+            <MessageSquarePlus size={16} /><span>反馈</span></button>
           <AccountAvatar user={account.user} checking={account.checking} onAccount={() => navigate('/account')} />
         </div></header>
       <div className={`page-title${pathname === '/account' ? ' account-page-title' : ''}`}><div>
@@ -58,5 +64,6 @@ function CustomerChrome() {
       <Outlet />
       {pathname !== '/outfits' && <footer className="statusbar"><span /><span>ITP STUDIO <i>v0.1</i></span></footer>}
     </div>
+    <FeedbackDialog open={feedback} user={account.user} onClose={() => setFeedback(false)} />
   </div>;
 }
