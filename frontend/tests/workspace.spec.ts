@@ -42,7 +42,7 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
   await expect(page.getByText('1 三角面')).toBeVisible();
   await page.getByRole('link', { name: '任务记录' }).click();
   await expect(page.getByText('第一件作品，从这里开始')).toBeVisible();
-  await page.getByRole('link', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '工作台主题' })).toBeVisible();
   await expect(page.locator('#faceverse_endpoint')).toHaveCount(0);
   await expect(page.getByLabel('Secret Key', { exact: true })).toHaveCount(0);
@@ -55,10 +55,12 @@ test('appearance is browser-local and no provider credentials are requested', as
     return route.fulfill({ status: 404 });
   });
   await page.goto('/');
-  await page.getByRole('link', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '工作台主题' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '模型服务' })).toHaveCount(0);
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '登录账号', exact: true })).toBeVisible();
+  await expect(page.locator('.theme-section input[type="password"]')).toHaveCount(0);
+  await expect(page.locator('[id$="api_key"], [id$="endpoint"]')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '保存设置' })).toHaveCount(0);
   expect(settingsRequests).toBe(0);
 });

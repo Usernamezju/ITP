@@ -77,8 +77,7 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
     return route.fulfill({ status: 404 });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '打开账号菜单' }).click();
-  await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await page.getByRole('button', { name: '账户与设置' }).click();
   return writes;
 }
 

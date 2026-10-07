@@ -5,8 +5,7 @@ export function AppearancePage({ colorTheme, contrastTheme, onColorTheme, onCont
   colorTheme: ColorTheme; contrastTheme: ContrastTheme;
   onColorTheme: (value: ColorTheme) => void; onContrastTheme: (value: ContrastTheme) => void;
 }) {
-  return <main className="settings-page">
-    <section className="settings-section theme-section">
+  return <section id="account-appearance" className="settings-section theme-section account-theme-section" aria-label="外观设置" tabIndex={-1}>
       <div className="settings-section-title"><span>外观</span><div><h3>工作台主题</h3>
         <p>选择适合你的配色与对比度，修改会立即生效并保存在浏览器中。</p></div></div>
       <div className="theme-controls"><div><strong>配色</strong>
@@ -21,6 +20,5 @@ export function AppearancePage({ colorTheme, contrastTheme, onColorTheme, onCont
           <button type="button" role="radio" aria-checked={contrastTheme === 'high'} className={contrastTheme === 'high' ? 'active' : ''}
             onClick={() => onContrastTheme('high')}>高对比度</button>
         </div></div></div>
-    </section>
-  </main>;
+  </section>;
 }

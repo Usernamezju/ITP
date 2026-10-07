@@ -59,13 +59,46 @@ test('every customer address opens directly and survives a refresh', async ({ pa
   ];
   for (const [path, label, isHeading] of routes) {
     await page.goto(path);
-    await expect(page).toHaveURL(new RegExp(`${path.replace('/', '\\/')}$`));
+    const canonicalPath = path === '/appearance' ? '/account' : path;
+    await expect(page).toHaveURL(new RegExp(`${canonicalPath.replace('/', '\\/')}$`));
     const found = isHeading ? page.getByRole('heading', { name: label }) : page.getByText(label);
     await expect(found.first()).toBeVisible();
     await page.reload();
     await expect(found.first()).toBeVisible();
   }
 });
+
+for (const signedIn of [false, true]) {
+  test(`settings and account avatar share one page (${signedIn ? 'signed in' : 'anonymous'})`, async ({ page }, testInfo) => {
+    await openPage(page, { signedIn });
+    await page.goto('/');
+    const settings = page.getByRole('link', { name: '设置', exact: true });
+    await expect(settings).toHaveAttribute('href', '/account');
+    await settings.click();
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(settings).toHaveClass(/selected/);
+    await expect(page.getByRole('heading', { name: signedIn ? '个人资料' : '登录账号', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '工作台主题' })).toBeVisible();
+    await page.getByRole('link', { name: '人体建模' }).click();
+    await page.getByRole('button', { name: signedIn ? '账户与设置' : '登录或注册' }).click();
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(page.getByRole('menu', { name: '账号菜单' })).toHaveCount(0);
+    await page.getByRole('link', { name: '主题设置', exact: true }).click();
+    await expect(page.getByRole('radio', { name: /电商橙/ })).toBeInViewport();
+    await page.getByRole('radio', { name: /科技风/ }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'tech');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('unified-settings-tech.png'), fullPage: true });
+    await page.reload();
+    await expect(page.getByRole('radio', { name: /科技风/ })).toHaveAttribute('aria-checked', 'true');
+    await page.goto('/appearance');
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(page.getByRole('heading', { name: signedIn ? '个人资料' : '登录账号', exact: true })).toBeVisible();
+    await page.getByRole('radio', { name: /电商橙/ }).click();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: testInfo.outputPath('unified-settings.png'), fullPage: true });
+  });
+}
 
 test('an address with no page returns to the workbench', async ({ page }) => {
   await openPage(page);
@@ -90,7 +123,7 @@ test('walking to another page and back keeps the workbench input', async ({ page
   await openPage(page);
   await page.goto('/');
   await page.getByLabel('资产名称').fill('留住这份灵感');
-  await page.getByRole('link', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '工作台主题' })).toBeVisible();
   await page.getByRole('link', { name: '人体建模' }).click();
   await expect(page.getByLabel('资产名称')).toHaveValue('留住这份灵感');

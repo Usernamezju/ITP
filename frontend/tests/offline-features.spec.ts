@@ -66,18 +66,18 @@ test('generate checklist and uploaded image preview', async ({ page }) => {
 
 test('color and contrast themes persist after reload', async ({ page }) => {
   await openStudio(page);
-  await page.getByRole('link', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await page.getByRole('radio', { name: /科技风/ }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'tech');
   await page.reload();
-  await page.getByRole('link', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await expect(page.getByRole('radio', { name: /科技风/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('radio', { name: /少女粉/ }).click();
   await page.getByRole('radio', { name: '高对比度' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'pink');
   await expect(page.locator('html')).toHaveAttribute('data-contrast', 'high');
   await page.reload();
-  await page.getByRole('link', { name: '外观', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await expect(page.getByRole('radio', { name: /少女粉/ })).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByRole('radio', { name: '高对比度' })).toHaveAttribute('aria-checked', 'true');
 });

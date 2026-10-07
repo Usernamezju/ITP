@@ -31,14 +31,11 @@ function OutfitsRoute() {
 }
 
 function AccountRoute() {
-  const { account } = useCustomer();
-  return <AccountPage key={account.user?.id || 'anonymous'} user={account.user} onChanged={account.refresh} />;
-}
-
-function AppearanceRoute() {
-  const { colorTheme, contrastTheme, setColorTheme, setContrastTheme } = useCustomer();
-  return <AppearancePage colorTheme={colorTheme} contrastTheme={contrastTheme}
-    onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} />;
+  const { account, colorTheme, contrastTheme, setColorTheme, setContrastTheme } = useCustomer();
+  return <AccountPage key={account.user?.id || 'anonymous'} user={account.user} onChanged={account.refresh}>
+    <AppearancePage colorTheme={colorTheme} contrastTheme={contrastTheme}
+      onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} />
+  </AccountPage>;
 }
 
 const router = createBrowserRouter([
@@ -54,7 +51,7 @@ const router = createBrowserRouter([
       { path: 'merchant', element: <MerchantGate /> },
       { path: 'history', element: <HistoryPage /> },
       { path: 'account', element: <AccountRoute /> },
-      { path: 'appearance', element: <AppearanceRoute /> },
+      { path: 'appearance', element: <Navigate to="/account" replace /> },
       // Any other address belongs to no page yet; send it to the workbench.
       { path: '*', element: <Navigate to="/" replace /> },
     ],

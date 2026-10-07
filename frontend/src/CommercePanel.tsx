@@ -54,7 +54,7 @@ export function CommercePanel({ user, children }: { user: Account; children?: Re
     const details = document.getElementById('account-member-details') as HTMLDetailsElement | null;
     if (details) { details.open = true; details.scrollIntoView({ block: 'nearest' }); }
   }
-  return <section className="commerce-panel account-dashboard" aria-label="账户资金概览"><div className="commerce-heading">
+  return <section id="account-information" className="commerce-panel account-dashboard" aria-label="账户资金概览" tabIndex={-1}><div className="commerce-heading">
     <span>账户资金与权益</span>
     <button type="button" className="text-button" disabled={loading || ledgerLoading} onClick={reload} aria-label="刷新钱包与流水">
       <RefreshCw size={15} />刷新</button></div>

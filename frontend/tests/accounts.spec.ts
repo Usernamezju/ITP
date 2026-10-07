@@ -74,9 +74,7 @@ test('avatar opens unified registration and restores the session on reload', asy
   await expect(page.getByText('个性化推荐年会员：¥45.67 / 12 个月')).toBeVisible();
   expect(writes.find((item) => item.path === '/api/auth/register')?.body.role).toBe('customer');
   await page.reload();
-  await page.getByRole('button', { name: '打开账号菜单' }).click();
-  await expect(page.getByRole('menu', { name: '账号菜单' })).toBeVisible();
-  await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await page.getByRole('button', { name: '账户与设置' }).click();
   await expect(page.getByLabel('昵称 / 商家名称')).toHaveValue('Alice');
   await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
   await expect(page.locator('[id$="api_key"], [id$="endpoint"]')).toHaveCount(0);
@@ -84,8 +82,7 @@ test('avatar opens unified registration and restores the session on reload', asy
 
 test('profile and logout use verified user endpoints and clear the shared session', async ({ page }) => {
   const writes = await openAccount(page, true);
-  await page.getByRole('button', { name: '打开账号菜单' }).click();
-  await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await page.getByRole('button', { name: '账户与设置' }).click();
   await page.getByLabel('昵称 / 商家名称').fill('新昵称');
   await page.getByRole('button', { name: '保存个人资料' }).click();
   await expect(page.getByText('个人资料已保存')).toBeVisible();
@@ -98,7 +95,7 @@ test('profile and logout use verified user endpoints and clear the shared sessio
 
 test('customer cannot open the merchant console', async ({ page }) => {
   await openAccount(page, true);
-  await expect(page.getByRole('button', { name: '打开账号菜单' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '账户与设置' })).toBeEnabled();
   await page.getByRole('link', { name: '商家后台', exact: true }).click();
   await expect(page.getByRole('heading', { name: '商家后台仅限商家账号访问' })).toBeVisible();
   await expect(page.getByRole('button', { name: '新建商品' })).toHaveCount(0);
@@ -106,8 +103,7 @@ test('customer cannot open the merchant console', async ({ page }) => {
 
 test('password mismatch is local and successful change requires re-login', async ({ page }) => {
   const writes = await openAccount(page, true);
-  await page.getByRole('button', { name: '打开账号菜单' }).click();
-  await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await page.getByRole('button', { name: '账户与设置' }).click();
   await page.getByRole('button', { name: '修改密码', exact: true }).click();
   await page.getByLabel('当前密码').fill('original-password');
   await page.getByLabel('新密码', { exact: true }).fill('second-password');
@@ -125,8 +121,7 @@ test('password mismatch is local and successful change requires re-login', async
 
 test('account overview uses live pricing and keeps the reference layout usable on both screens', async ({ page }, testInfo) => {
   await openAccount(page, true);
-  await page.getByRole('button', { name: '打开账号菜单' }).click();
-  await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await page.getByRole('button', { name: '账户与设置' }).click();
   await expect(page.getByRole('heading', { name: '账户概览', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: '当前余额', exact: true })).toContainText('¥87.65');
   await expect(page.getByRole('region', { name: '会员状态', exact: true })).toContainText('未开通');

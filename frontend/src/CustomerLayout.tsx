@@ -1,14 +1,12 @@
 import { Box, CircleHelp, Clock3, Layers3, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AccountAvatar } from './AccountPage';
-import { logoutAccount } from './accountApi';
 import { CustomerProvider, useCustomer } from './customerState';
 
 /** The heading each customer address shows; unknown paths fall back to the workspace. */
 const TITLES: Record<string, string> = {
   '/': '从一张图，到一个世界', '/tryon': '虚拟试穿', '/outfits': '穿搭推荐',
   '/merchant': '商家后台', '/history': '你的创作记录', '/account': '账户概览',
-  '/appearance': '外观设置',
 };
 
 const railClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'selected' : '');
@@ -36,7 +34,7 @@ function CustomerChrome() {
       <NavLink to="/merchant" className={railClass} aria-label="商家后台" title="商家后台"><Store size={21} /></NavLink>
       <NavLink to="/history" className={railClass} aria-label="任务记录" title="任务记录"><Clock3 size={21} /></NavLink>
       <div className="rail-spacer" />
-      <NavLink to="/appearance" className={railClass} aria-label="外观" title="外观"><Settings2 size={21} /></NavLink>
+      <NavLink to="/account" className={railClass} aria-label="设置" title="账号与外观设置"><Settings2 size={21} /></NavLink>
       <a href="/docs" target="_blank" rel="noreferrer" aria-label="接口文档" title="接口文档"><CircleHelp size={20} /></a>
       <div className="avatar">IT</div>
     </aside>
@@ -44,8 +42,7 @@ function CustomerChrome() {
       <header className="topbar"><div className="wordmark">ITP <span>穿搭空间</span><i /> <span className="breadcrumb">发现适合你的穿搭</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 素材保存在本机</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button>
-          <AccountAvatar user={account.user} checking={account.checking} onAccount={() => navigate('/account')}
-            onLogout={() => { void logoutAccount().catch((err) => setError((err as Error).message)); }} />
+          <AccountAvatar user={account.user} checking={account.checking} onAccount={() => navigate('/account')} />
         </div></header>
       <div className={`page-title${pathname === '/account' ? ' account-page-title' : ''}`}><div>
         {pathname !== '/account' && <div className="eyebrow">穿搭 · 试穿 · 人体建模</div>}

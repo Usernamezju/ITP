@@ -1,11 +1,11 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { CircleHelp, LoaderCircle, LogOut, UserRound } from 'lucide-react';
 import { accountApi, logoutAccount, type Account } from './accountApi';
 import { sessionToken } from './session';
 import './AccountPage.css';
 import { CommercePanel } from './CommercePanel';
 
-export function AccountPage({ user, onChanged }: { user: Account | null; onChanged: () => void }) {
+export function AccountPage({ user, onChanged, children }: { user: Account | null; onChanged: () => void; children?: ReactNode }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [fields, setFields] = useState({ name: '', display_name: '', contact: '', password: '', role: 'customer' });
   const [profile, setProfile] = useState({ display_name: user?.display_name || '', contact: user?.contact || '' });
@@ -55,9 +55,12 @@ export function AccountPage({ user, onChanged }: { user: Account | null; onChang
   }
 
   return <main className="account-page">
+    <nav className="account-section-nav" aria-label="账号设置分区">
+      <a href="#account-information">账户信息与资金</a><a href="#account-appearance">主题设置</a>
+    </nav>
     {error && <p role="alert" className="account-error">{error}</p>}
     {notice && <p role="status" className="account-notice">{notice}</p>}
-    {!user ? <form className="account-card" onSubmit={authenticate}>
+    {!user ? <form id="account-information" className="account-card" tabIndex={-1} onSubmit={authenticate}>
       <h2><UserRound size={18} /> {mode === 'login' ? '登录账号' : '创建账号'}</h2>
       <div className="account-tabs"><button type="button" className={mode === 'login' ? 'active' : ''}
         onClick={() => setMode('login')}>登录</button><button type="button" className={mode === 'register' ? 'active' : ''}
@@ -80,7 +83,7 @@ export function AccountPage({ user, onChanged }: { user: Account | null; onChang
       <button className="button" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" />
         : mode === 'register' ? '注册并登录' : '登录账号'}</button>
     </form> : <>
-      <p className="account-welcome">欢迎回来，管理您的账户与使用情况</p>
+      <p className="account-welcome">欢迎回来，管理您的账户、资金与外观设置</p>
       <CommercePanel user={user}>
       <section className="account-card account-profile-card" aria-label="个人资料与账号安全">
       <form className="account-profile-form" onSubmit={saveProfile}><h2>个人资料</h2>
@@ -117,25 +120,15 @@ export function AccountPage({ user, onChanged }: { user: Account | null; onChang
       </section>
       </CommercePanel>
     </>}
+    {children}
   </main>;
 }
 
-export function AccountAvatar({ user, checking, onAccount, onLogout }: {
-  user: Account | null; checking: boolean; onAccount: () => void; onLogout: () => void;
+export function AccountAvatar({ user, checking, onAccount }: {
+  user: Account | null; checking: boolean; onAccount: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  return <div className="account-menu" onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false); }}
-    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
-    <button type="button" className="account-avatar" disabled={checking}
-      aria-label={user ? '打开账号菜单' : '登录或注册'} aria-expanded={user ? open : undefined}
-      aria-haspopup={user ? 'menu' : undefined}
-      onClick={() => { if (!user) onAccount(); else setOpen(!open); }}>
+  return <button type="button" className="account-avatar" disabled={checking}
+      aria-label={user ? '账户与设置' : '登录或注册'} onClick={onAccount}>
       {checking ? <LoaderCircle size={15} className="spin" /> : user ? user.display_name.slice(0, 1).toUpperCase() : <UserRound size={17} />}
-    </button>
-    {user && open && <div className="account-menu-panel" role="menu" aria-label="账号菜单">
-      <strong>{user.display_name}</strong>
-      <button type="button" role="menuitem" onClick={() => { setOpen(false); onAccount(); }}>账号设置</button>
-      <button type="button" role="menuitem" onClick={() => { setOpen(false); onLogout(); }}>退出登录</button>
-    </div>}
-  </div>;
+    </button>;
 }
