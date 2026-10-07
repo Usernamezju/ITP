@@ -229,8 +229,10 @@ def test_register_login_and_me(env):
     me = client.get("/api/merchant/me", headers=auth(tokens["access_token"]))
     assert me.status_code == 200
     assert set(me.json()) == {
-        "merchant_id", "name", "display_name", "contact", "created", "quota", "garment_count", "upload_usage",
+        "merchant_id", "name", "display_name", "contact", "created", "quota",
+        "garment_count", "upload_usage", "avatar_key",
     }
+    assert me.json()["avatar_key"] is None  # a fresh shop uses the default avatar
     assert me.json()["garment_count"] == 0
     assert me.json()["quota"] == settings.merchant_free_upload_limit
     assert me.json()["contact"] == "owner@example.com"

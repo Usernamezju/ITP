@@ -5,7 +5,25 @@ import { SESSION_EVENT, sessionToken } from './session';
 export type Account = {
   id: string; name: string; display_name: string; contact: string;
   role: 'customer' | 'merchant' | 'admin'; created: number;
+  /** Unguessable file key of the uploaded avatar, or null for the default. */
+  avatar_key?: string | null;
 };
+
+/** The uploaded picture's URL, or null when the account uses the default one. */
+export function avatarUrl(user: Pick<Account, 'avatar_key'> | null | undefined): string | null {
+  return user?.avatar_key ? `/api/avatars/${user.avatar_key}` : null;
+}
+
+/** Avatar pictures travel as multipart; a JSON body would break the file upload. */
+export function uploadAvatar(file: File): Promise<Account> {
+  const body = new FormData();
+  body.append('file', file);
+  return api<Account>('/api/account/avatar', { method: 'POST', body });
+}
+
+export function removeAvatar(): Promise<Account> {
+  return accountApi<Account>('/api/account/avatar', 'DELETE');
+}
 
 export function accountApi<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const token = sessionToken.read();

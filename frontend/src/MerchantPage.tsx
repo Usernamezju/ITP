@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { ApiError } from './api';
 import { logoutAccount } from './accountApi';
+import { AvatarImage } from './Avatar';
 import { SESSION_EVENT } from './session';
 import { parseYuan, yuanText } from './money';
 import {
@@ -804,7 +805,7 @@ export function MerchantPage() {
   return <section className="merchant-page">
     <div className="merchant-bar">
       <div className="merchant-identity">
-        <Store size={17} strokeWidth={1.5} />
+        <AvatarImage className="merchant-avatar" user={profile} decorative />
         <div><strong>{profile.display_name}</strong>
           <small>@{profile.name}{profile.contact ? ` · ${profile.contact}` : ''}</small></div>
       </div>

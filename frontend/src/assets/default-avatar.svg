@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="默认头像">
+  <defs>
+    <linearGradient id="itpAvatarSilhouette" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8A4D" />
+      <stop offset="1" stop-color="#F04A00" />
+    </linearGradient>
+    <clipPath id="itpAvatarFrame">
+      <circle cx="64" cy="64" r="62" />
+    </clipPath>
+  </defs>
+  <circle cx="64" cy="64" r="64" fill="#FFF2EC" />
+  <g clip-path="url(#itpAvatarFrame)">
+    <circle cx="64" cy="48" r="21" fill="url(#itpAvatarSilhouette)" />
+    <ellipse cx="64" cy="121" rx="47" ry="38" fill="url(#itpAvatarSilhouette)" />
+  </g>
+  <circle cx="64" cy="64" r="61" fill="none" stroke="#FFD4C2" stroke-width="3" />
+</svg>

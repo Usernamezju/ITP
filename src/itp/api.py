@@ -18,7 +18,13 @@ from filelock import FileLock, Timeout
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from itp.accounts import AccountProfileUpdate, AccountRegisterRequest, AuthLimiter, public_account
+from itp.accounts import (
+    AccountProfileUpdate,
+    AccountRegisterRequest,
+    AuthLimiter,
+    public_account,
+)
+from itp.avatars import MAX_AVATAR_UPLOAD, AvatarStore, render_avatar
 
 from itp.config import BFL_PROVIDERS, KLEIN_PROVIDERS, Settings
 from itp.face_refine import (
@@ -314,9 +320,11 @@ def create_app(
     face_worker = FaceRefineWorker(store, face_jobs, settings)
     merchants = MerchantStore(settings.data_dir, settings)
     pipeline.commerce = merchants.commerce
+    avatars = AvatarStore(settings.data_dir / "avatars")
     settings_lock = threading.Lock()
     face_lock = threading.Lock()
     auth_limiter = AuthLimiter()
+    avatar_limiter = AuthLimiter()
     janitor_stop = threading.Event()
 
     def janitor():
@@ -1238,6 +1246,42 @@ def create_app(
     @app.post("/api/account/password")
     def account_password(body: MerchantPasswordRequest, user: dict = Depends(current_user)):
         return merchant_change_password(body, user)
+
+    # Avatars belong to the account, so customers and shops can both use them.
+    # The picture is re-encoded on the server and published under a random key
+    # URL: no account id travels with it, and replacing it retires the old URL.
+    @app.post("/api/account/avatar")
+    async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(current_user)):
+        avatar_limiter.check(("avatar", user["id"]), attempts=10, seconds=60)
+        try:
+            data = await file.read(MAX_AVATAR_UPLOAD + 1)
+        finally:
+            await file.close()
+        try:
+            picture = await asyncio.to_thread(render_avatar, data)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        previous = user.get("avatar_key")
+        updated = merchants.set_avatar_key(user["id"], avatars.save(picture))
+        if previous:
+            avatars.remove(previous)
+        return public_account(updated)
+
+    @app.delete("/api/account/avatar")
+    def delete_avatar(user: dict = Depends(current_user)):
+        updated = merchants.set_avatar_key(user["id"], None)
+        if user.get("avatar_key"):
+            avatars.remove(user["avatar_key"])
+        return public_account(updated)
+
+    @app.get("/api/avatars/{key}")
+    def avatar_image(key: str):
+        path = avatars.path(key)
+        if not path:
+            raise HTTPException(404, "头像不存在")
+        # The key changes with every upload, so the file itself never changes.
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
     @app.post("/api/merchant/garments", status_code=201)
     async def merchant_create_garment(

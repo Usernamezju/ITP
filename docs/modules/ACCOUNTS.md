@@ -8,7 +8,7 @@
 
 ## 账户概览页面
 
-`/account` 登录后采用三层卡片布局：顶部余额、会员状态和调用价格；中间
+`/account` 登录后采用三层卡片布局：顶部余额与会员状态；中间
 个人资料与充值/会员；下方我的订单与最近资金流水。桌面分栏，手机按顺序
 堆叠，路由、左侧导航和 JWT 会话保持原样。修改密码通过资料卡中的按钮
 展开，提交后仍吊销所有旧登录状态并要求重新登录。
@@ -22,13 +22,33 @@
 继续分页查询。没有配置支付渠道时显示说明并禁用订单创建，不承诺未实现的
 线下充值。此次页面调整复用 `CommercePanel` / `PaymentPanel`，无需数据迁移。
 
+## 头像
+
+顾客与商家都可以上传自己的头像，也可以继续使用系统默认头像（内置
+`frontend/src/assets/default-avatar.svg`，品牌橙底色的人形剪影，随应用一起
+发布，不依赖任何外部图床）。入口在「个人资料」卡：`上传头像` 选择文件，
+`恢复默认头像` 清空；商家后台顶栏与顾客端右上角显示同一张图。
+
+- `POST /api/account/avatar`（JWT，multipart `file`）在服务端解码后**重新编码**
+  为 256×256 正方形 PNG：限制 4 MiB、2500 万像素、短边至少 64 像素，只接受
+  PNG/JPEG/WebP 且拒绝动态图；重编码同时按 EXIF 方向摆正并**丢弃全部拍摄
+  信息（含 GPS）**。`DELETE /api/account/avatar` 恢复默认。
+- 文件按随机键存为 `data/avatars/<32 位十六进制>.png`，账号表只保存
+  `avatar_key`（新增可空列，旧账号默认头像）。图片通过
+  `GET /api/avatars/{key}` 提供，该地址不需要登录：键不可猜测，且**不含账号
+  ID**；每次上传生成新键并删除旧文件，因此旧 URL 自然失效、缓存不会显示旧图。
+  键格式外的路径一律 404（已覆盖编码后的目录穿越）。
+- `avatar_key` 同时出现在 `/api/account/me`、`/api/merchant/me` 和管理员账号
+  列表里，前端只拿它拼图片地址，拿不到也不会回显任何账号资料。
+
 ## 存储与迁移
 
 复用 `MerchantStore` 和 `merchants.sqlite3` 中原有 `merchants` 凭据表，增加
 `role`（`customer` / `merchant` / `admin`）列，旧行默认为商家。历史表名保留，
 以免复制账号、修改商品外键或丢失 scrypt 哈希。迁移只增加列及
 `auth_revocations` 表，可重复启动；旧账号 ID、哈希和商品不变。顾客的 legacy
-quota 为 0。
+quota 为 0。头像键 `avatar_key` 同样是启动时新增的可空列，旧账号保持默认
+头像，不需要回填。
 
 `admin` 角色只能由服务器本地的 `scripts/create_admin.py` 创建：注册接口的
 role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。早期
@@ -52,6 +72,9 @@ role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。
 | GET | `/api/account/me` | Bearer；个人资料，不含哈希与平台凭据 |
 | PATCH | `/api/account/me` | Bearer；仅 display_name/contact 部分更新，拒绝 null |
 | POST | `/api/account/password` | Bearer；current_password/new_password，成功后重新登录 |
+| POST | `/api/account/avatar` | Bearer；multipart `file`，服务端重编码为 256×256 PNG 后保存 |
+| DELETE | `/api/account/avatar` | Bearer；恢复默认头像并删除已上传的文件 |
+| GET | `/api/avatars/{key}` | 公开；按随机键返回头像 PNG，键格式外一律 404 |
 | GET | `/api/admin/status` 等 | Bearer + admin 角色；只读管理后台数据，唯一的写接口是支付配置 `POST /api/admin/payments/config`，见 [Web 工作台](WEB.md) |
 
 旧 `/api/merchant/register`、`login` 和 `password` 委托同一实现，兼容旧调用方；

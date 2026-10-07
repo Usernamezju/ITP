@@ -263,3 +263,5 @@
  .merchant-form-block { padding:14px; }
  .merchant-actions .button { flex:1 1 125px; }
 }
+
+.merchant-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }

@@ -27,7 +27,11 @@ class AccountProfileUpdate(BaseModel):
 
 
 def public_account(user: dict) -> dict:
-    return {key: user[key] for key in ("id", "name", "display_name", "contact", "role", "created")}
+    return {key: user[key] for key in ("id", "name", "display_name", "contact", "role", "created")} | {
+        # Only the unguessable file key: the picture itself is fetched from
+        # /api/avatars/{key}, and no account id is exposed with it.
+        "avatar_key": user.get("avatar_key"),
+    }
 
 
 class AuthLimiter:

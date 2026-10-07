@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { CircleHelp, LoaderCircle, LogOut, UserRound } from 'lucide-react';
-import { accountApi, logoutAccount, type Account } from './accountApi';
+import { accountApi, logoutAccount, removeAvatar, uploadAvatar, type Account } from './accountApi';
+import { AvatarImage } from './Avatar';
 import { sessionToken } from './session';
 import './AccountPage.css';
 import { CommercePanel } from './CommercePanel';
@@ -14,6 +15,7 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editingPassword, setEditingPassword] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   async function run(action: () => Promise<void>) {
     if (busy) return;
@@ -54,6 +56,24 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
     });
   }
 
+  async function changeAvatar(file: File | undefined) {
+    if (!file || avatarBusy) return;
+    if (file.size > 4 * 1024 * 1024) { setError('头像不能超过 4 MiB'); return; }
+    setAvatarBusy(true); setError(''); setNotice('');
+    try {
+      await uploadAvatar(file);
+      setNotice('头像已更新'); onChanged();
+    } catch (err) { setError((err as Error).message); }
+    finally { setAvatarBusy(false); }
+  }
+  function resetAvatar() {
+    if (avatarBusy) return;
+    setAvatarBusy(true); setError(''); setNotice('');
+    void removeAvatar().then(() => { setNotice('已恢复默认头像'); onChanged(); })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setAvatarBusy(false));
+  }
+
   return <main className="account-page">
     <nav className="account-section-nav" aria-label="账号设置分区">
       <a href="#account-information">账户信息与资金</a><a href="#account-appearance">主题设置</a>
@@ -88,10 +108,23 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
       <section className="account-card account-profile-card" aria-label="个人资料与账号安全">
       <form className="account-profile-form" onSubmit={saveProfile}><h2>个人资料</h2>
         <p className="account-card-description">管理您的个人信息，用于账号识别与联系</p>
-        <div className="account-identity"><span className="account-avatar">{user.display_name.slice(0, 1).toUpperCase()}</span>
+        <div className="account-identity"><AvatarImage className="account-avatar" user={user} />
           <div><div className="account-identity-name"><strong>{user.name}</strong>
             <small className="account-role">{user.role === 'admin' ? '管理员' : user.role === 'merchant' ? '商家' : '普通用户'}</small></div>
             <span className="account-display-name">{user.display_name}</span></div></div>
+        <div className="account-avatar-actions">
+          <label className="button account-outline">{avatarBusy ? '正在上传…' : '上传头像'}
+            <input type="file" accept="image/png,image/jpeg,image/webp" disabled={avatarBusy}
+              aria-label="上传头像图片"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                void changeAvatar(file);
+              }} /></label>
+          {user.avatar_key && <button type="button" className="text-button" disabled={avatarBusy}
+            onClick={resetAvatar}>恢复默认头像</button>}
+          <small>支持 PNG / JPEG / WebP，最大 4 MiB，建议使用正方形图片；上传的图片会重新压缩并去掉拍摄信息。</small>
+        </div>
         <label>昵称 / 商家名称<input className="text-input" required maxLength={40} value={profile.display_name}
           onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></label>
         <label>手机号<input className="text-input" maxLength={80} inputMode="tel" value={profile.contact}
@@ -129,6 +162,7 @@ export function AccountAvatar({ user, checking, onAccount }: {
 }) {
   return <button type="button" className="account-avatar" disabled={checking}
       aria-label={user ? '账户与设置' : '登录或注册'} onClick={onAccount}>
-      {checking ? <LoaderCircle size={15} className="spin" /> : user ? user.display_name.slice(0, 1).toUpperCase() : <UserRound size={17} />}
+      {checking ? <LoaderCircle size={15} className="spin" />
+        : user ? <AvatarImage className="account-avatar-image" user={user} decorative /> : <UserRound size={17} />}
     </button>;
 }

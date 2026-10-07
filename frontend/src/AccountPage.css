@@ -133,3 +133,12 @@
 @media(max-width:760px) {
   .page-title.account-page-title { padding:22px 16px 12px; }
 }
+
+/* Avatars: the uploaded picture, or the built-in default one. */
+img.account-avatar { padding: 0; overflow: hidden; object-fit: cover; }
+.account-avatar-image { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+button.account-avatar { padding: 0; overflow: hidden; }
+.account-avatar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.account-avatar-actions label { position: relative; cursor: pointer; }
+.account-avatar-actions input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.account-avatar-actions small { flex-basis: 100%; font-size: 12px; line-height: 1.7; color: var(--theme-muted); }

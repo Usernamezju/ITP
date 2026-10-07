@@ -1,18 +1,28 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { imageFromCanvas } from './fixtures';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
-const account = { id: 'c'.repeat(32), name: 'alice', display_name: 'Alice', contact: '', role: 'customer', created: 1 };
+const account = { id: 'c'.repeat(32), name: 'alice', display_name: 'Alice', contact: '',
+  role: 'customer', created: 1, avatar_key: null as string | null };
+const uploadedKey = 'd'.repeat(32);
+// A real 1x1 PNG: the stored picture is replaced by the default when it fails to load.
+const avatarPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64');
 
 async function openAccount(page: Page, signedIn = false) {
   const writes: { path: string; body: Record<string, unknown> }[] = [];
-  const user = { ...account };
+  const user: typeof account = { ...account };
   if (signedIn) await page.addInitScript(() => localStorage.setItem('itp.merchant.token', 'customer-token'));
   await page.route('**/*', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
-    if (path.startsWith('/api/') && method !== 'GET') writes.push({ path, body: route.request().postDataJSON() });
+    // Multipart uploads have no JSON body, so they are captured by their handler.
+    if (path.startsWith('/api/') && method !== 'GET' && path !== '/api/account/avatar') {
+      writes.push({ path, body: route.request().postDataJSON() });
+    }
     if (path.startsWith('/assets/')) {
       const name = path.slice('/assets/'.length);
       if (!/^[\w.-]+$/.test(name)) { await route.fulfill({ status: 404 }); return; }
@@ -46,6 +56,17 @@ async function openAccount(page: Page, signedIn = false) {
       await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
         { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567,
           period_months: 12, purchasable: true, entitlements: {} }] } });
+    } else if (path === '/api/account/avatar') {
+      expect(route.request().headers()['authorization']).toBe('Bearer customer-token');
+      if (method === 'DELETE') user.avatar_key = null;
+      else {
+        // The picture itself must have travelled as a file part.
+        expect(route.request().postDataBuffer()?.toString('latin1')).toContain('filename="avatar.png"');
+        user.avatar_key = uploadedKey;
+      }
+      await route.fulfill({ json: user });
+    } else if (path.startsWith('/api/avatars/')) {
+      await route.fulfill({ body: avatarPng, contentType: 'image/png' });
     } else if (path === '/api/account/password') {
       await route.fulfill({ json: { changed: true, tokens_revoked: true } });
     } else if (path.startsWith('/api/')) {
@@ -95,13 +116,6 @@ test('profile and logout use verified user endpoints and clear the shared sessio
   expect(await page.evaluate(() => localStorage.getItem('itp.merchant.token'))).toBeNull();
 });
 
-test('customer cannot open the merchant console', async ({ page }) => {
-  await openAccount(page, true);
-  await expect(page.getByRole('button', { name: '账户与设置' })).toBeEnabled();
-  await page.getByRole('link', { name: '商家后台', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '商家后台仅限商家账号访问' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '新建商品' })).toHaveCount(0);
-});
 
 test('password mismatch is local and successful change requires re-login', async ({ page }) => {
   const writes = await openAccount(page, true);
@@ -177,4 +191,40 @@ test('membership overview distinguishes current rights from expired and future s
   current = true;
   await page.getByRole('button', { name: '刷新钱包与流水' }).click();
   await expect(membership).toContainText('已开通');
+});
+
+test('an account uploads its own avatar and can return to the default', async ({ page }) => {
+  await openAccount(page, true);
+  await page.getByRole('button', { name: '账户与设置' }).click();
+  const profileAvatar = page.locator('.account-profile-card img.account-avatar');
+  const topAvatar = page.locator('button.account-avatar img.account-avatar-image');
+  // The built-in default ships with the app: it is either a file or, when Vite
+  // inlines it, an SVG data URI. What matters is that no upload URL is used.
+  const source = async (locator: typeof profileAvatar) => (await locator.getAttribute('src')) || '';
+  for (const avatar of [profileAvatar, topAvatar]) {
+    expect(await source(avatar)).not.toContain('/api/avatars/');
+    expect(await source(avatar)).toMatch(/default-avatar|^data:image\/svg\+xml/);
+  }
+
+  await page.getByLabel('上传头像图片').setInputFiles({
+    name: 'avatar.png', mimeType: 'image/png', buffer: await imageFromCanvas(page) });
+  await expect(profileAvatar).toHaveAttribute('src', `/api/avatars/${uploadedKey}`);
+  await expect(topAvatar).toHaveAttribute('src', `/api/avatars/${uploadedKey}`);
+  await expect(page.getByText('头像已更新')).toBeVisible();
+  // Replacing the picture means a new URL, so no cache can show the old one.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+
+  await page.getByRole('button', { name: '恢复默认头像' }).click();
+  await expect(page.getByText('已恢复默认头像')).toBeVisible();
+  for (const avatar of [profileAvatar, topAvatar]) {
+    expect(await source(avatar)).not.toContain('/api/avatars/');
+  }
+  await expect(page.getByRole('button', { name: '恢复默认头像' })).toHaveCount(0);
+});
+test('customer cannot open the merchant console', async ({ page }) => {
+  await openAccount(page, true);
+  await expect(page.getByRole('button', { name: '账户与设置' })).toBeEnabled();
+  await page.getByRole('link', { name: '商家后台', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '商家后台仅限商家账号访问' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '新建商品' })).toHaveCount(0);
 });

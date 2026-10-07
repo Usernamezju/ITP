@@ -581,6 +581,7 @@ def public_merchant(merchant: dict, *, garment_count: int | None = None) -> dict
         "contact": merchant["contact"],
         "created": merchant["created"],
         "quota": merchant["quota"],
+        "avatar_key": merchant.get("avatar_key"),
     }
     if garment_count is not None:
         document["garment_count"] = garment_count
@@ -699,6 +700,9 @@ class MerchantStore:
                 # SQLite cannot alter a CHECK constraint, so a table created
                 # before the admin role is rebuilt once, inside a transaction.
                 self._migrate_merchants_for_admin(conn)
+            if "avatar_key" not in columns:
+                # Nullable, so every existing account keeps the default avatar.
+                conn.execute("ALTER TABLE merchants ADD COLUMN avatar_key TEXT")
             # A nullable column preserves old rows and all unrelated tables.
             # Serialize schema inspection with other starting API processes.
             conn.commit()
@@ -797,7 +801,8 @@ class MerchantStore:
             return None
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota, role "
+                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota, "
+                "role, avatar_key "
                 "FROM merchants WHERE id = ?",
                 (merchant_id,),
             ).fetchone()
@@ -806,7 +811,8 @@ class MerchantStore:
     def merchant_by_name(self, name: str) -> dict | None:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota, role "
+                "SELECT id, name, display_name, contact, password_hash, created, disabled, quota, "
+                "role, avatar_key "
                 "FROM merchants WHERE name = ?",
                 (name,),
             ).fetchone()
@@ -817,8 +823,9 @@ class MerchantStore:
         with self.connect() as conn:
             total = conn.execute("SELECT COUNT(*) FROM merchants").fetchone()[0]
             rows = conn.execute(
-                "SELECT id, name, display_name, contact, created, disabled, quota, role "
-                "FROM merchants ORDER BY created DESC, rowid DESC LIMIT ? OFFSET ?",
+                "SELECT id, name, display_name, contact, created, disabled, quota, role, "
+                "avatar_key FROM merchants ORDER BY created DESC, rowid DESC "
+                "LIMIT ? OFFSET ?",
                 (limit, offset),
             ).fetchall()
             products = dict(
@@ -834,6 +841,7 @@ class MerchantStore:
                 "disabled": bool(row[5]),
                 "quota": row[6] if row[6] is not None else 0,
                 "role": row[7],
+                "avatar_key": row[8],
                 "garment_count": products.get(row[0], 0),
             }
             for row in rows
@@ -868,6 +876,12 @@ class MerchantStore:
                 (1 if disabled else 0, merchant_id),
             )
         return cursor.rowcount > 0
+
+    def set_avatar_key(self, user_id: str, key: str | None) -> dict:
+        """Point one account at an avatar file, or clear it back to the default."""
+        with self._lock, self.connect() as conn:
+            conn.execute("UPDATE merchants SET avatar_key = ? WHERE id = ?", (key, user_id))
+        return self.merchant(user_id)
 
     def update_account_profile(self, user_id: str, *, display_name: str, contact: str) -> dict:
         with self._lock, self.connect() as conn:
@@ -908,6 +922,7 @@ class MerchantStore:
             "disabled": bool(row[6]),
             "quota": row[7] if row[7] is not None else 0,
             "role": row[8],
+            "avatar_key": row[9],
         }
 
     # ------------------------------------------------------------------- garments
