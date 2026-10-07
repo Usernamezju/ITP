@@ -16,7 +16,10 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
   await page.getByRole('button', { name: '开始生成' }).click();
   await expect(page.getByText('请上传角色图片')).toBeVisible();
   await expect(page.getByText('人体建模服务暂不可用，请稍后再试')).toBeVisible();
-  if (!isMobile) await expect(page.getByRole('heading', { name: '服务状态' })).toBeVisible();
+  // The service-status card is gone; the desktop rail keeps the recent tasks.
+  await expect(page.getByRole('heading', { name: '服务状态' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '工作空间', exact: true })).toHaveCount(0);
+  if (!isMobile) await expect(page.getByRole('heading', { name: '最近任务' })).toBeVisible();
 
   const image = await imageFromCanvas(page);
   await page.getByLabel('上传上传角色图片').setInputFiles({

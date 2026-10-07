@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Box, Check, ChevronRight, Clock3, FileBox, ImagePlus,
-  LoaderCircle, Plus, SlidersHorizontal, Sparkles, Upload, Unplug, X } from 'lucide-react';
+  LoaderCircle, Plus, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { post, type Asset, type Job, type PoseMode } from './api';
 import { BodyMetricsPanel } from './BodyMetricsPanel';
@@ -214,8 +214,7 @@ export default function WorkspacePage() {
         {job?.state === 'succeeded' && job.artifacts.some((item) => item.format === 'GLB') &&
           <FaceRefinePanel model={generatedGlb!} name={job.name} configured={Boolean(caps?.faceverse)} />}
       </section>
-      <aside className="inspector"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
-        <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>服务状态</h3><p>将图片转为可用的三维资产，无需配置接口。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '可用' : '暂不可用'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '可用' : '暂不可用'}</b></div><div className="service-line"><span>去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '可用' : '暂不可用'}</b></div></div>
+      <aside className="inspector">
         <div className="recent-heading"><h3>最近任务</h3><button className="text-button" onClick={() => navigate('/history')}>全部 <ChevronRight size={12} /></button></div>
         {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={previewImage(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${jobState(item).className}`}>{jobState(item).label}</small></span><ChevronRight size={12} /></button>)}
         {!jobs.length && <div className="recent-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>每一步进度都会保存在这里</small></div>}
