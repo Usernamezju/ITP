@@ -340,7 +340,7 @@ class PaymentService:
                 # the wallet's lifetime amount bound; reject before a paid call.
                 if amount > 10000000:
                     raise CommerceError("单次充值不能超过 100000 元")
-                description = "ITP 钱包充值"
+                description = "ClothiNation 钱包充值"
             else:
                 if body.get("amount_cents") is not None:
                     raise CommerceError("会员价格只能由平台确定")

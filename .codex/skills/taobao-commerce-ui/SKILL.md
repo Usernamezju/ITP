@@ -1,11 +1,11 @@
 ---
 name: taobao-commerce-ui
-description: Apply a Taobao/JD-inspired Chinese e-commerce visual system to the ITP React frontend while preserving the existing layout, routes, accessibility and business workflows. Use when changing ITP colors, typography, cards, buttons, product/recommendation surfaces, merchant analytics, wallet or commerce UI.
+description: Apply a Taobao/JD-inspired Chinese e-commerce visual system to the ClothiNation React frontend while preserving the existing layout, routes, accessibility and business workflows. Use when changing ClothiNation colors, typography, cards, buttons, product/recommendation surfaces, merchant analytics, wallet or commerce UI.
 ---
 
 ## Goal
 
-把 ITP 从当前偏绿色 AI/SaaS 工作台的视觉语言，调整为成熟中文电商平台风格。主要参考淘宝的品牌橙、商品视觉优先级与信息密度，辅以京东清晰的交易状态和数据呈现方式。
+把 ClothiNation 从当前偏绿色 AI/SaaS 工作台的视觉语言，调整为成熟中文电商平台风格。主要参考淘宝的品牌橙、商品视觉优先级与信息密度，辅以京东清晰的交易状态和数据呈现方式。
 
 只借鉴视觉系统和交互原则，不复制淘宝、天猫、京东的 Logo、品牌素材、页面源码或完整布局。
 

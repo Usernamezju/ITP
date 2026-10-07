@@ -120,7 +120,7 @@ const manualChannels = () => ({
 const manualOrdersSeed: Record<string, unknown>[] = [{
   id: 'm'.repeat(32), kind: 'recharge', provider: 'manual_wechat', amount_cents: 5000,
   currency: 'CNY', state: 'pending', created: 1790671818, updated: 1790671818,
-  expires: 1800000000, paid_at: null, description: 'ITP 钱包充值', plan_id: null,
+  expires: 1800000000, paid_at: null, description: 'ClothiNation 钱包充值', plan_id: null,
   checkout: { qr_image: '/api/payments/manual/qr/' + 'a'.repeat(32) },
   user_id: 'c'.repeat(32), account_name: 'alice',
 }];

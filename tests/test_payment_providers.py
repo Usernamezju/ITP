@@ -223,7 +223,7 @@ def test_wechat_native_and_query_verify_signed_requests_and_responses(tmp_path, 
     provider = WechatProvider(
         settings_for(tmp_path, keys), transport=httpx.MockTransport(transport)
     )
-    order = {"id": "test-order", "amount_cents": 3000, "description": "ITP test"}
+    order = {"id": "test-order", "amount_cents": 3000, "description": "ClothiNation test"}
     assert provider.create(order, "https://payments.example.org/callback")["qr_code"].startswith(
         "weixin://"
     )

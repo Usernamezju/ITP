@@ -2,7 +2,7 @@
 
 ## Current AutoDL container (2026-10-04)
 
-The current ITP deployment keeps this service at
+The current ClothiNation deployment keeps this service at
 `/root/autodl-tmp/itp-app/services/faceverse` with an isolated venv and
 `libegl1`. The upstream source is checked out at commit
 `19c67cc4d7234b1ea7d55a185a2cb55fd49bb877` under
@@ -12,10 +12,10 @@ startup with `--lifespan off` were verified without GPU or inference.
 
 The three model assets are **not present** in this container. Consequently,
 normal lifespan startup and actual face refinement were not tested and the
-ITP provider remains disabled. The deployment path and successful inference
+ClothiNation provider remains disabled. The deployment path and successful inference
 described below refer to a **previous container**, not this one.
 
-This is the separate Ubuntu 22.04 / RTX 3080 Ti service for ITP's `POST /v1/face-refine` protocol. It uses the actual FaceVerse V4 network and weights, MediaPipe face detection, mesh rendering/registration, surface deformation and GLB export. It does not change the independent body-generation path in ITP. Never commit weights, face photos, tokens or generated meshes.
+This is the separate Ubuntu 22.04 / RTX 3080 Ti service for ClothiNation's `POST /v1/face-refine` protocol. It uses the actual FaceVerse V4 network and weights, MediaPipe face detection, mesh rendering/registration, surface deformation and GLB export. It does not change the independent body-generation path in ClothiNation. Never commit weights, face photos, tokens or generated meshes.
 
 ## Previous-container layout and installation
 
@@ -47,13 +47,13 @@ export ITP_FACEVERSE_API_TOKEN='your-private-token'
 bash scripts/start.sh
 ```
 
-`GET http://127.0.0.1:8787/health` returns the model and GPU readiness. To connect from the ITP host, forward the port over the supplied SSH connection:
+`GET http://127.0.0.1:8787/health` returns the model and GPU readiness. To connect from the ClothiNation host, forward the port over the supplied SSH connection:
 
 ```bash
 ssh -N -L 8787:127.0.0.1:8787 -i ~/.ssh/autodl -p 40292 root@connect.bjb2.seetacloud.com
 ```
 
-Then enter `http://127.0.0.1:8787/v1/face-refine` in ITP's FaceVerse endpoint setting, `faceverse-v4` as the model, and the same bearer token in ITP's API-key setting. The token is intentionally not stored in this repository. For a public endpoint, add TLS and access control at a reverse proxy; ITP intentionally rejects non-local plain HTTP.
+Then enter `http://127.0.0.1:8787/v1/face-refine` in ClothiNation's FaceVerse endpoint setting, `faceverse-v4` as the model, and the same bearer token in ClothiNation's API-key setting. The token is intentionally not stored in this repository. For a public endpoint, add TLS and access control at a reverse proxy; ClothiNation intentionally rejects non-local plain HTTP.
 
 ## Pipeline and acceptance
 
@@ -67,4 +67,4 @@ export PYOPENGL_PLATFORM=egl
 .venv/bin/python tests/verify_full_pipeline.py ../validation/body.glb ../validation/test.jpg ../validation/refined.glb --vendor-root ../vendor/FaceVerse_v4
 ```
 
-The report includes landmark RMS, seam distance, repaired loops, residual open edges and `collision_count`. The collision count is a **signed-nearest-surface screening metric**, not a certified self-intersection test. Visually review frontal and profile renders before using an asset; source photo and body must depict the same person. The tested example used an unrelated official sample photo and an existing ITP body asset, so its identity similarity is not an acceptance result. Very low-quality source heads, undetectable rendered faces, large pose differences, accessories overlapping the face, and non-manifold meshes may be rejected or require manual cleanup. A tiny residual open edge remained in the tested sample; this is reported rather than hidden.
+The report includes landmark RMS, seam distance, repaired loops, residual open edges and `collision_count`. The collision count is a **signed-nearest-surface screening metric**, not a certified self-intersection test. Visually review frontal and profile renders before using an asset; source photo and body must depict the same person. The tested example used an unrelated official sample photo and an existing ClothiNation body asset, so its identity similarity is not an acceptance result. Very low-quality source heads, undetectable rendered faces, large pose differences, accessories overlapping the face, and non-manifold meshes may be rejected or require manual cleanup. A tiny residual open edge remained in the tested sample; this is reported rather than hidden.

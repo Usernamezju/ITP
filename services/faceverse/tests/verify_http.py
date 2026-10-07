@@ -1,4 +1,4 @@
-"""Integration acceptance for the real authenticated ITP HTTP protocol."""
+"""Integration acceptance for the real authenticated ClothiNation HTTP protocol."""
 
 import argparse
 import base64
@@ -40,7 +40,7 @@ def main() -> None:
     _validate_glb(output)
     report = result["report"]
     if set(report["operations"]) != set(OPERATIONS):
-        raise AssertionError("ITP operation report is incomplete")
+        raise AssertionError("ClothiNation operation report is incomplete")
     print(
         json.dumps(
             {

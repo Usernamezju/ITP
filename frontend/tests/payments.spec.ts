@@ -66,7 +66,7 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
         const order: Order = { id: 'order-' + orders.length, kind: body.kind,
           provider: manual ? 'manual_wechat' : 'mock',
           amount_cents: body.kind === 'membership' ? 4567 : body.amount_cents,
-          description: body.kind === 'membership' ? '个性化推荐年会员' : 'ITP 钱包充值', state: 'pending',
+          description: body.kind === 'membership' ? '个性化推荐年会员' : 'ClothiNation 钱包充值', state: 'pending',
           created: 1, expires: 1800000000,
           checkout: manual ? { qr_image: '/api/payments/manual/qr/' + 'a'.repeat(32) } : { mock: true } };
         orders.unshift(order);

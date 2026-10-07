@@ -20,7 +20,7 @@ validation has been performed as part of this integration.
 For a separately provisioned 9B service, use the same bootstrap and start
 scripts with `ITP_KLEIN_MODEL_ID=flux.2-klein-9b`. If setting
 `ITP_KLEIN_MODEL_PATH`, it must reference a complete **9B Diffusers snapshot**,
-not the existing 4B cache or a standalone FP8 checkpoint. Configure ITP's
+not the existing 4B cache or a standalone FP8 checkpoint. Configure ClothiNation's
 9B settings separately with endpoint
 `http://127.0.0.1:8789/v1/flux-klein/edit`, model `flux.2-klein-9b`, and the
 matching service token. `ITP_KLEIN_SERVICE_PYTHON` optionally selects an
@@ -32,12 +32,12 @@ The existing service at `/root/autodl-tmp/itp-flux-klein-service` retains its
 venv and about 15 GB of model cache. Its Python files, FastAPI import and
 routes, and a loopback HTTP/OpenAPI startup with `--lifespan off` were
 verified without loading the model. `/health` correctly returned
-`ready=false`. The previously exposed bearer token was rotated, and ITP's
+`ready=false`. The previously exposed bearer token was rotated, and ClothiNation's
 Flux Klein provider is disabled until GPU inference is explicitly enabled
 and validated. The live inference results described below belong to a
 **previous deployment**, not this no-GPU verification.
 
-This directory contains a real Diffusers-backed image-editing service for ITP. It does not contain model weights. The model is [`black-forest-labs/FLUX.2-klein-4B`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), licensed under Apache-2.0. The model card states roughly 13 GB VRAM for normal loading. The validated 32 GB RTX 4080 SUPER host runs without CPU offload; smaller hosts may need offload and separate validation.
+This directory contains a real Diffusers-backed image-editing service for ClothiNation. It does not contain model weights. The model is [`black-forest-labs/FLUX.2-klein-4B`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), licensed under Apache-2.0. The model card states roughly 13 GB VRAM for normal loading. The validated 32 GB RTX 4080 SUPER host runs without CPU offload; smaller hosts may need offload and separate validation.
 
 ## Server preparation
 
@@ -55,7 +55,7 @@ bash scripts/start.sh
 
 `ITP_KLEIN_OFFLOAD` accepts `sequential` (the default and slowest), `model`, or `none` (the validated 32 GB setting). Set `ITP_KLEIN_MODEL_PATH` to an existing absolute model snapshot directory, or leave it unset to let Diffusers download into the Hugging Face cache. `HF_ENDPOINT` may be set to an accessible compatible mirror; verify its provenance. The token above is only an example: use a private value and never commit it.
 
-The server binds to `127.0.0.1:8788` only. With an SSH tunnel, set ITP's Klein endpoint to `http://127.0.0.1:8788/v1/flux-klein/edit` and enter the same token in the ITP settings page. A public deployment requires an authenticated HTTPS reverse proxy; `scripts/start.sh` intentionally refuses a public bind.
+The server binds to `127.0.0.1:8788` only. With an SSH tunnel, set ClothiNation's Klein endpoint to `http://127.0.0.1:8788/v1/flux-klein/edit` and enter the same token in the ClothiNation settings page. A public deployment requires an authenticated HTTPS reverse proxy; `scripts/start.sh` intentionally refuses a public bind.
 
 ## Contract and validation
 

@@ -26,7 +26,7 @@ Pro 与 Max 均接受并保存 `https://api.haijingai.com/v2/images/generations`
 
 协议测试采用离线 HTTP transport，覆盖 Pro/Max、请求字段和鉴权、URL/Base64 结果、响应错误、危险地址、重定向与体积限制；浏览器测试覆盖桌面及窄屏下保存并提交海鲸配置。本次没有调用海鲸生成 API，实际效果由用户测试。[海鲸模型页面](https://api.haijingai.com/api-docs/model-detail/flux-2-max/)与 [公开 API 文档](https://api.haijingai.com/api-docs/api/image-generation/)仅作后续核对入口，不将本次试验格式标记为官方已验证协议。
 
-FLUX.2 Klein 4B 是自建服务，代码见 `services/flux_klein/`。ITP 的 `flux_klein` 适配器通过带 Bearer Token 的 `POST /v1/flux-klein/edit` 发送 1–4 张 JPEG data URL、提示词与模型标识，接收 PNG base64；正面最多两张参考图，其他视角最多四张，优先保留当前人物、当前服装与已生成的正面换装图。`GET /api/tryon-providers/flux-klein/health` 检查远端模型是否实际加载；未就绪时不会创建任务。配置项：`ITP_FLUX_KLEIN_ENDPOINT`、`ITP_FLUX_KLEIN_API_KEY`、`ITP_FLUX_KLEIN_MODEL`。用户在右侧服务卡片的下拉框选择模型；窄屏的选择框位于左侧设置区。
+FLUX.2 Klein 4B 是自建服务，代码见 `services/flux_klein/`。ClothiNation 的 `flux_klein` 适配器通过带 Bearer Token 的 `POST /v1/flux-klein/edit` 发送 1–4 张 JPEG data URL、提示词与模型标识，接收 PNG base64；正面最多两张参考图，其他视角最多四张，优先保留当前人物、当前服装与已生成的正面换装图。`GET /api/tryon-providers/flux-klein/health` 检查远端模型是否实际加载；未就绪时不会创建任务。配置项：`ITP_FLUX_KLEIN_ENDPOINT`、`ITP_FLUX_KLEIN_API_KEY`、`ITP_FLUX_KLEIN_MODEL`。用户在右侧服务卡片的下拉框选择模型；窄屏的选择框位于左侧设置区。
 
 FLUX.2 Klein 9B 使用独立的 `flux_klein_9b` 选项，配置为 `ITP_FLUX_KLEIN_9B_ENDPOINT`、`ITP_FLUX_KLEIN_9B_API_KEY`、`ITP_FLUX_KLEIN_9B_MODEL`（默认 `flux.2-klein-9b`）。它与 4B 采用相同的图片协议和四参考图策略，六张输出可直接继续生成 3D。`GET /api/tryon-providers/flux-klein-9b/health` 会同时检查就绪状态和模型标识；把 9B 地址误填为 4B 服务时会拒绝创建任务。两种服务配置与访问令牌互相独立。自建服务如何加载对应权重见 [FLUX 服务文档](../../services/flux_klein/README.md)。
 

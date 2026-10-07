@@ -68,7 +68,7 @@ def create_app(engine: KleinEngine | None = None, *, model_name: str | None = No
                 logger.exception("%s failed to load", model_name)
         yield
 
-    app = FastAPI(title=f"ITP {model_name} Service", lifespan=lifespan)
+    app = FastAPI(title=f"ClothiNation {model_name} Service", lifespan=lifespan)
     app.state.model_name = model_name
     app.state.engine = engine
     app.state.load_error = None

@@ -373,7 +373,7 @@ def create_app(
                 lock.acquire(timeout=0)
             except Timeout as exc:
                 raise RuntimeError(
-                    "ITP already uses this data directory; run one worker only"
+                    "ClothiNation already uses this data directory; run one worker only"
                 ) from exc
             store.sweep_stale()
             merchants.commerce.reconcile_models(store.job, pipeline.has_valid_result)
@@ -406,7 +406,7 @@ def create_app(
                 merchants.commerce.finish_model(job["id"], succeeded=False, valid_result=False)
             store.close()
 
-    app = FastAPI(title="ITP Studio API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="ClothiNation Studio API", version="0.1.0", lifespan=lifespan)
     app.state.store = store
     app.state.commercial_assets = commercial_assets
     app.state.pipeline = pipeline
@@ -1782,7 +1782,7 @@ def create_app(
             return FileResponse(index)
         if path in {"", "index.html"}:
             return {
-                "message": "ITP API ready. Build frontend to serve the workspace.",
+                "message": "ClothiNation API ready. Build frontend to serve the workspace.",
                 "docs": "/docs",
             }
         raise HTTPException(404, "前端尚未构建")

@@ -1,1 +1,1 @@
-"""ITP local asset studio."""
+"""ClothiNation local asset studio."""

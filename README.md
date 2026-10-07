@@ -1,4 +1,4 @@
-# ITP · Image to Pose & 3D
+# ClothiNation · Image to Pose & 3D
 
 国内服务优先的角色姿势控制与 3D 资产工作台。参考 Meshy Custom Pose 视频，支持角色图、姿势参考图、多视角、几何生成、拓扑、PBR、绑骨与资产导出。
 
@@ -38,11 +38,11 @@ uv run --no-sync uvicorn itp.api:create_app --factory --host 127.0.0.1 --port 80
 
 ## 电商化升级要点
 
-本轮把站点从“AI 工作台”调整为中文电商外观，并把**部署层的站点密码**换成了 ITP 自己的账号体系。
+本轮把站点从“AI 工作台”调整为中文电商外观，并把**部署层的站点密码**换成了 ClothiNation 自己的账号体系。
 
-**为什么移除部署层 Basic Auth。** 旧配置在 `deploy/autodl/nginx-itp.conf` 的 `server` 级设置了 `auth_basic "ITP Studio"` 与 `auth_basic_user_file /etc/nginx/itp.htpasswd`，访问任何页面都先弹浏览器原生密码框。整站共享一个口令既无法区分顾客与商家，也无法做归属、额度和审计，还要为每个新用户发一次口令。移除后首页、`/merchant`、`/account`、`/admin` 直接打开，流程变成「直接访问网站 → 用户按业务需要注册/登录 ITP 账号」，同时清掉了为绕过该密码而加的冗余 `auth_basic off`。
+**为什么移除部署层 Basic Auth。** 旧配置在 `deploy/autodl/nginx-itp.conf` 的 `server` 级设置了站点级 `auth_basic` 与 `auth_basic_user_file /etc/nginx/itp.htpasswd`，访问任何页面都先弹浏览器原生密码框。整站共享一个口令既无法区分顾客与商家，也无法做归属、额度和审计，还要为每个新用户发一次口令。移除后首页、`/merchant`、`/account`、`/admin` 直接打开，流程变成「直接访问网站 → 用户按业务需要注册/登录 ClothiNation 账号」，同时清掉了为绕过该密码而加的冗余 `auth_basic off`。
 
-**ITP 自身认证完整保留。** 客户/商家/Admin 的注册登录、JWT 鉴权、角色权限、账户资料、钱包、余额、充值、会员、订单和商家数据隔离都没有删除：`accounts.py`、`merchant_auth.py`、账号页面和 `/api/*` 的鉴权依赖仍在，未登录者读不到钱包、流水、订单或任何商家数据。`/api/body-profile` 这类遗留共享测量接口在公网继续返回 404。
+**ClothiNation 自身认证完整保留。** 客户/商家/Admin 的注册登录、JWT 鉴权、角色权限、账户资料、钱包、余额、充值、会员、订单和商家数据隔离都没有删除：`accounts.py`、`merchant_auth.py`、账号页面和 `/api/*` 的鉴权依赖仍在，未登录者读不到钱包、流水、订单或任何商家数据。`/api/body-profile` 这类遗留共享测量接口在公网继续返回 404。
 
 **商品购买链接与点击统计。** 商品新增可选 `purchase_url`（只接受 `http://` / `https://`，拒绝 `javascript:` 等危险协议、内嵌账号密码和空白）；顾客点购买入口时前端**先调用** `POST /api/garments/{id}/clicks` 落盘，再用 `noopener,noreferrer` 打开新标签页，统计失败只提示不中断跳转。`garment_clicks` 表记录 `id`、`garment_id`、`merchant_id`、`created`，并按商品/商家与时间建索引；商家通过 `GET /api/merchant/analytics` 读取**自己的**今日/本月/累计点击、逐商品明细与近 14 天趋势，越权访问被拒绝。
 

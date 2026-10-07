@@ -110,7 +110,7 @@ def _get(client: httpx.Client, url: str) -> httpx.Response:
     """Follow at most a few redirects, checking every hop's host."""
     for _ in range(REDIRECTS + 1):
         current = checked_url(url)
-        response = client.get(current, headers={"User-Agent": "ITP-product-import/1.0"})
+        response = client.get(current, headers={"User-Agent": "ClothiNation-product-import/1.0"})
         if response.status_code in {301, 302, 303, 307, 308}:
             location = response.headers.get("location")
             if not location:

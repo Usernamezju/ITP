@@ -1,4 +1,4 @@
-"""Authenticated ITP v1 FaceVerse V4 face-refinement HTTP service."""
+"""Authenticated ClothiNation v1 FaceVerse V4 face-refinement HTTP service."""
 
 import base64
 import binascii
@@ -103,11 +103,11 @@ def _validate_contract(payload: RefineRequest) -> None:
     if payload.model != "faceverse-v4":
         raise ValueError("Only model 'faceverse-v4' is available")
     if set(payload.preserve) != PRESERVE:
-        raise ValueError("ITP hair, back_head and neck preservation is required")
+        raise ValueError("ClothiNation hair, back_head and neck preservation is required")
     if set(payload.alignment_landmarks) != LANDMARK_GROUPS:
-        raise ValueError("ITP eye, nose, mouth, chin and head-width landmarks are required")
+        raise ValueError("ClothiNation eye, nose, mouth, chin and head-width landmarks are required")
     if set(payload.required_operations) != set(OPERATIONS):
-        raise ValueError("ITP v1 requires all ten face-refinement operations")
+        raise ValueError("ClothiNation v1 requires all ten face-refinement operations")
 
 
 def _run_refinement(inference: FaceVerseInference, payload: RefineRequest) -> dict:
@@ -186,7 +186,7 @@ async def lifespan(app: FastAPI):
         app.state.inference.close()
 
 
-app = FastAPI(title="ITP FaceVerse V4 Refinement", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="ClothiNation FaceVerse V4 Refinement", version="1.0.0", lifespan=lifespan)
 
 
 @app.get("/health")

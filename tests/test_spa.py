@@ -12,7 +12,7 @@ def dist(tmp_path):
     """A stand-in build directory, so the tests do not need a real bundle."""
     directory = tmp_path / "dist"
     (directory / "assets").mkdir(parents=True)
-    (directory / "index.html").write_text("<!doctype html><title>ITP STUDIO</title>")
+    (directory / "index.html").write_text("<!doctype html><title>ClothiNation STUDIO</title>")
     (directory / "assets" / "app.js").write_text("console.log('itp')")
     return directory
 
@@ -30,7 +30,7 @@ def test_every_page_url_returns_the_app(tmp_path, dist, path):
         response = client.get(path)
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
-        assert "ITP STUDIO" in response.text
+        assert "ClothiNation STUDIO" in response.text
 
 
 def test_built_files_win_and_api_paths_never_fall_back(tmp_path, dist):

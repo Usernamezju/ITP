@@ -107,7 +107,7 @@ export default function AdminPage() {
     <header className="admin-topbar">
       <div className="admin-brand">
         <ShieldCheck size={19} />
-        <div><strong>ITP 系统管理后台</strong><small>平台运维控制台 · 仅支付配置可写</small></div>
+        <div><strong>ClothiNation 系统管理后台</strong><small>平台运维控制台 · 仅支付配置可写</small></div>
       </div>
       <nav className="admin-topnav" aria-label="站点导航">
         <a href="/">顾客端</a><a href="/merchant">商家端</a><a href="/docs">接口文档</a>

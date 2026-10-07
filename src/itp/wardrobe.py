@@ -1,4 +1,4 @@
-"""Deterministic outfit recommendations and bounding-box body estimates for ITP.
+"""Deterministic outfit recommendations and bounding-box body estimates for ClothiNation.
 
 Everything this feature needs lives in this file: the catalogue of outfits is a
 plain Python structure, the body descriptors are computed from a local GLB and

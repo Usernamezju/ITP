@@ -2,7 +2,7 @@
 
 Loads the real FastAPI application with a stub inference object installed on
 ``app.state`` and exercises routing, bearer authentication, the size limits,
-the ten-operation ITP contract, GLB and photo validation and the error
+the ten-operation ClothiNation contract, GLB and photo validation and the error
 mapping, without model weights, CUDA initialisation or GPU inference.
 
 Run inside the service venv (torch, mediapipe, trimesh and pyrender are

@@ -1,7 +1,7 @@
 # AutoDL production deployment
 
 This deployment uses the AutoDL HTTPS gateway (`:8443` -> container port `6006`),
-public Nginx page access, ITP application JWT authentication, one Uvicorn worker, and the image's supervised
+public Nginx page access, ClothiNation application JWT authentication, one Uvicorn worker, and the image's supervised
 `/etc/autodl.sh` boot hook. The app and credentials live under
 `/root/autodl-tmp/itp-app` and `/root/autodl-tmp/itp-data` respectively.
 
@@ -34,7 +34,7 @@ changes. Deployment must preserve the live `.env`; never replace it with the
 example. Browser appearance preferences remain browser-local.
 
 首页、`/merchant`、`/account`、`/admin` 可以直接打开，不再出现浏览器原生
-Basic Auth 弹窗。访问流程为“直接访问网站 → 按业务需要注册/登录 ITP 账号”。
+Basic Auth 弹窗。访问流程为“直接访问网站 → 按业务需要注册/登录 ClothiNation 账号”。
 商品、钱包、订单及管理数据仍由 FastAPI 的 JWT、数据库角色和归属检查保护。
 商家上传代理保留 81 MiB 上限，应用继续校验每张图片和请求体。
 
