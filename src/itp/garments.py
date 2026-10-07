@@ -877,6 +877,28 @@ class MerchantStore:
             )
         return cursor.rowcount > 0
 
+    def upgrade_to_merchant(self, user_id: str, *, display_name: str, contact: str) -> dict:
+        """Give one customer account the merchant role, keeping its own data.
+
+        The account id, password, wallet, orders and local creation history all
+        stay with the same person; only the role and the shop profile change, so
+        the same session token opens the merchant endpoints immediately.
+        """
+        with self._lock, self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT role FROM merchants WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("账号不存在")
+            if row[0] == "merchant":
+                raise ValueError("该账号已经是商家")
+            if row[0] != "customer":
+                raise ValueError("管理员账号不能注册为商家")
+            conn.execute(
+                "UPDATE merchants SET role = 'merchant', display_name = ?, contact = ? WHERE id = ?",
+                (display_name, contact, user_id),
+            )
+        return self.merchant(user_id)
+
     def set_avatar_key(self, user_id: str, key: str | None) -> dict:
         """Point one account at an avatar file, or clear it back to the default."""
         with self._lock, self.connect() as conn:

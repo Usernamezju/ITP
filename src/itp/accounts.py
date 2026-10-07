@@ -20,6 +20,14 @@ class AccountRegisterRequest(BaseModel):
     role: Literal["customer", "merchant"] = "customer"
 
 
+class AccountMerchantUpgrade(BaseModel):
+    """A signed-in customer turns their own account into a shop."""
+
+    model_config = ConfigDict(extra="forbid")
+    display_name: str | None = None
+    contact: str | None = None
+
+
 class AccountProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     display_name: str | None = None

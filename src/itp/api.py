@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from itp.accounts import (
+    AccountMerchantUpgrade,
     AccountProfileUpdate,
     AccountRegisterRequest,
     AuthLimiter,
@@ -1246,6 +1247,22 @@ def create_app(
     @app.post("/api/account/password")
     def account_password(body: MerchantPasswordRequest, user: dict = Depends(current_user)):
         return merchant_change_password(body, user)
+
+    @app.post("/api/account/merchant")
+    def become_merchant(body: AccountMerchantUpgrade, user: dict = Depends(current_user)):
+        """A customer registers as a shop without creating a second account."""
+        if user.get("role") == "admin":
+            raise HTTPException(403, "管理员账号不能注册为商家")
+        # An omitted field keeps the account's current value; an explicit empty
+        # one is validated like the profile form and refused.
+        fields = account_profile_fields(
+            body.display_name if body.display_name is not None else user["display_name"],
+            body.contact if body.contact is not None else user["contact"],
+        )
+        try:
+            return public_account(merchants.upgrade_to_merchant(user["id"], **fields))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     # Avatars belong to the account, so customers and shops can both use them.
     # The picture is re-encoded on the server and published under a random key

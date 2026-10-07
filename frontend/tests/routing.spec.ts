@@ -129,8 +129,10 @@ test('walking to another page and back keeps the workbench input', async ({ page
   await expect(page.getByLabel('资产名称')).toHaveValue('留住这份灵感');
 });
 
-test('a customer who opens the merchant console directly is refused', async ({ page }) => {
+test('a customer who opens the merchant console is offered the upgrade', async ({ page }) => {
   await openPage(page, { signedIn: true });
   await page.goto('/merchant');
-  await expect(page.getByRole('heading', { name: '商家后台仅限商家账号访问' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '注册成为商家' })).toBeVisible();
+  // No shop functions are reachable before the account really has the role.
+  await expect(page.getByRole('button', { name: '新建商品' })).toHaveCount(0);
 });

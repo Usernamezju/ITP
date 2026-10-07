@@ -56,6 +56,10 @@ async function openAccount(page: Page, signedIn = false) {
       await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
         { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567,
           period_months: 12, purchasable: true, entitlements: {} }] } });
+    } else if (path === '/api/account/merchant') {
+      expect(route.request().headers()['authorization']).toBe('Bearer customer-token');
+      Object.assign(user, route.request().postDataJSON(), { role: 'merchant' });
+      await route.fulfill({ json: user });
     } else if (path === '/api/account/avatar') {
       expect(route.request().headers()['authorization']).toBe('Bearer customer-token');
       if (method === 'DELETE') user.avatar_key = null;
@@ -221,10 +225,20 @@ test('an account uploads its own avatar and can return to the default', async ({
   }
   await expect(page.getByRole('button', { name: '恢复默认头像' })).toHaveCount(0);
 });
-test('customer cannot open the merchant console', async ({ page }) => {
-  await openAccount(page, true);
+test('a customer registers as a merchant from the console and keeps the account', async ({ page }) => {
+  const writes = await openAccount(page, true);
   await expect(page.getByRole('button', { name: '账户与设置' })).toBeEnabled();
   await page.getByRole('link', { name: '商家后台', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '商家后台仅限商家账号访问' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '注册成为商家' })).toBeVisible();
   await expect(page.getByRole('button', { name: '新建商品' })).toHaveCount(0);
+  // The name already on the account is the starting point, not a new signup.
+  await expect(page.getByLabel('商家名称')).toHaveValue('Alice');
+  await page.getByLabel('手机号').fill('13800000000');
+  await page.getByRole('button', { name: '注册成为商家' }).click();
+
+  const upgrade = writes.find((item) => item.path === '/api/account/merchant');
+  expect(upgrade?.body).toEqual({ display_name: 'Alice', contact: '13800000000' });
+  // The same account now carries the merchant role, so the upgrade card is gone.
+  await expect(page.getByRole('heading', { name: '注册成为商家' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '商家后台' })).toBeVisible();
 });

@@ -22,6 +22,22 @@
 继续分页查询。没有配置支付渠道时显示说明并禁用订单创建，不承诺未实现的
 线下充值。此次页面调整复用 `CommercePanel` / `PaymentPanel`，无需数据迁移。
 
+## 从顾客升级为商家
+
+顾客在「商家后台」看到的不再是拒绝提示，而是**注册成为商家**卡片：填写商家
+名称与手机号后调用 `POST /api/account/merchant`，把**当前账号**的角色从
+`customer` 改成 `merchant`，不新建账号、不改密码、不换 ID。因此：
+
+- 同一枚 JWT 立即获得商家权限（服务端每次请求都从数据库读取角色，不看令牌
+  里的角色声明），顾客端功能也全部保留：余额、订单、流水、建模、试穿与穿搭
+  推荐继续可用，浏览器里的本机素材与账号分区不变。
+- 上传额度按商家免费套餐从账号创建时间起算，无需额外迁移。
+- 已经是商家返回 409，管理员账号返回 403；`display_name` 与 `contact` 复用
+  个人资料的校验规则（1–40 / ≤80 字符、拒绝不可见控制字符），省略字段表示
+  保留原值，显式传空字符串会被拒绝。
+- 顾客在升级前访问 `/api/merchant/*` 仍是 403，升级后同一批接口返回 200。
+  旧的 `POST /api/merchant/register` 仍然可用，供独立的商家账号注册。
+
 ## 头像
 
 顾客与商家都可以上传自己的头像，也可以继续使用系统默认头像（内置
@@ -72,6 +88,7 @@ role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。
 | GET | `/api/account/me` | Bearer；个人资料，不含哈希与平台凭据 |
 | PATCH | `/api/account/me` | Bearer；仅 display_name/contact 部分更新，拒绝 null |
 | POST | `/api/account/password` | Bearer；current_password/new_password，成功后重新登录 |
+| POST | `/api/account/merchant` | Bearer；顾客把当前账号升级为商家，可传 display_name/contact |
 | POST | `/api/account/avatar` | Bearer；multipart `file`，服务端重编码为 256×256 PNG 后保存 |
 | DELETE | `/api/account/avatar` | Bearer；恢复默认头像并删除已上传的文件 |
 | GET | `/api/avatars/{key}` | 公开；按随机键返回头像 PNG，键格式外一律 404 |
