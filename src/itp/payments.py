@@ -279,6 +279,17 @@ class AlipayProvider(PaymentProvider):
         data = self.rpc("alipay.trade.query", {"out_trade_no": order["id"]})
         return self._paid(data, callback=False) if data else None
 
+    def verify_credentials(self):
+        """Prove both keys and the gateway round trip with a signed probe query.
+
+        A random order id must come back as ACQ.TRADE_NOT_EXIST: that answer is
+        signed by Alipay, so a successful call means the platform accepted this
+        app's signature and the stored Alipay public key verified the reply.
+        """
+        probe = "itp-credential-probe-" + secrets.token_hex(8)
+        if self.rpc("alipay.trade.query", {"out_trade_no": probe}) is not None:
+            raise PaymentError("支付宝返回了意外的探测结果")
+
     def callback(self, raw, headers):
         try:
             pairs = parse_qsl(raw.decode("utf-8"), keep_blank_values=True, strict_parsing=True)
@@ -333,7 +344,7 @@ class WechatProvider(PaymentProvider):
         signed = timestamp.encode() + b"\n" + nonce.encode() + b"\n" + raw + b"\n"
         rsa_verify(key, headers.get("wechatpay-signature", ""), signed)
 
-    def request(self, method, target, body=None):
+    def request(self, method, target, body=None, tolerate=()):
         raw = (
             json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
             if body is not None
@@ -363,7 +374,8 @@ class WechatProvider(PaymentProvider):
             if len(response.content) > 128 * 1024:
                 raise PaymentError("支付响应过大")
             self.verify(response.content, response.headers)
-            response.raise_for_status()
+            if response.status_code not in tolerate:
+                response.raise_for_status()
             return json_document(response.content)
         except (httpx.HTTPError, ValueError) as exc:
             if isinstance(exc, PaymentError):
@@ -422,6 +434,24 @@ class WechatProvider(PaymentProvider):
             f"?mchid={quote(self.merchant_id, safe='')}"
         )
         return self._paid(self.request("GET", target))
+
+    def verify_credentials(self):
+        """Prove the merchant key, serial and platform key with a signed probe.
+
+        WeChat answers a rejected signature with 401/403 and signs every other
+        reply, so a verified ORDER_NOT_EXIST for a random order id shows that
+        this merchant certificate was accepted and the stored platform key is
+        the one signing the answers.
+        """
+        probe = "itp-credential-probe-" + secrets.token_hex(8)
+        target = (
+            f"/v3/pay/transactions/out-trade-no/{quote(probe, safe='')}"
+            f"?mchid={quote(self.merchant_id, safe='')}"
+        )
+        data = self.request("GET", target, tolerate=(404,))
+        code = data.get("code")
+        if code and code not in {"ORDER_NOT_EXIST", "RESOURCE_NOT_EXISTS"}:
+            raise PaymentError("微信支付返回了意外的探测结果")
 
     def callback(self, raw, headers):
         self.verify(raw, headers)

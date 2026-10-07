@@ -8,6 +8,46 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from itp.config import Settings
 
+_ENV_KEY = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z0-9_]+)\s*=")
+
+
+def write_env_values(path: Path, fields: tuple[str, ...], changes: dict) -> None:
+    """Atomically rewrite exactly these ITP_* keys in the server settings file.
+
+    Old lines for the same keys are dropped, values are JSON-encoded so PEM
+    material with newlines stays on one line, the replacement is atomic and the
+    file keeps owner-only permissions. Symlinked files are refused.
+    """
+    if not changes:
+        return
+    if path.is_symlink():
+        raise OSError("Refusing to replace a symlinked settings file")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = path.read_text(encoding="utf-8") if path.exists() else ""
+    keys = {f"ITP_{field.upper()}" for field in changes}
+    lines = [
+        line for line in original.splitlines(keepends=True)
+        if not (match := _ENV_KEY.match(line)) or match.group(1) not in keys
+    ]
+    content = "".join(lines)
+    if content and not content.endswith("\n"):
+        content += "\n"
+    for field in fields:
+        if field in changes:
+            content += f"ITP_{field.upper()}={json.dumps(changes[field], ensure_ascii=False)}\n"
+    fd, temporary = tempfile.mkstemp(prefix=".env.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 EDITABLE_FIELDS = (
     "tencent_endpoint",
     "tencent_region",
@@ -123,32 +163,4 @@ def validate_provider_update(
 
 
 def save_provider_settings(path: Path, changes: dict) -> None:
-    if not changes:
-        return
-    if path.is_symlink():
-        raise OSError("Refusing to replace a symlinked settings file")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    original = path.read_text(encoding="utf-8") if path.exists() else ""
-    keys = {f"ITP_{field.upper()}" for field in changes}
-    pattern = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z0-9_]+)\s*=")
-    lines = [
-        line for line in original.splitlines(keepends=True)
-        if not (match := pattern.match(line)) or match.group(1) not in keys
-    ]
-    content = "".join(lines)
-    if content and not content.endswith("\n"):
-        content += "\n"
-    for field in EDITABLE_FIELDS:
-        if field in changes:
-            content += f"ITP_{field.upper()}={json.dumps(changes[field], ensure_ascii=False)}\n"
-    fd, temporary = tempfile.mkstemp(prefix=".env.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    write_env_values(path, EDITABLE_FIELDS, changes)

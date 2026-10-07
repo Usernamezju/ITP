@@ -19,26 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 class PaymentService:
-    def __init__(self, accounts, settings):
-        self.accounts, self.commerce, self.settings = accounts, accounts.commerce, settings
+    def __init__(self, accounts, settings, *, transport=None):
+        self.accounts, self.commerce = accounts, accounts.commerce
+        self.transport = transport
         self.providers = {}
         self.unavailable = {}
-        self.notify_origin = settings.payment_notify_origin or settings.public_origin
         self._locks = [threading.Lock() for _ in range(64)]
-        for name, factory, configured in (
-            ("alipay", AlipayProvider, settings.alipay_app_id),
-            ("wechat", WechatProvider, settings.wechat_mch_id),
-        ):
-            if not configured or not self.notify_origin:
-                self.unavailable[name] = "平台未启用该支付方式"
-                continue
-            try:
-                self.providers[name] = factory(settings)
-            except PaymentError:
-                self.unavailable[name] = "平台支付配置未就绪"
-                logger.warning("Payment provider %s configuration is invalid", name)
-        if settings.payment_mock_enabled:
-            self.providers["mock"] = MockProvider(settings, accounts)
+        self.reload(settings)
         with accounts.connect() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS payment_orders (
@@ -59,6 +46,90 @@ class PaymentService:
                     verified_at INTEGER NOT NULL, PRIMARY KEY(provider,transaction_id)
                 );
             """)
+
+    def reload(self, settings):
+        """Rebuild the channel registry from new credentials.
+
+        This is the in-process equivalent of restarting the payment service: the
+        operator console calls it right after writing new credentials, and it
+        touches no order, transaction or wallet row.
+        """
+        self.settings = settings
+        self.notify_origin = settings.payment_notify_origin or settings.public_origin
+        self.providers = {}
+        self.unavailable = {}
+        for name, factory, configured in (
+            ("alipay", AlipayProvider, settings.alipay_app_id),
+            ("wechat", WechatProvider, settings.wechat_mch_id),
+        ):
+            if not configured:
+                self.unavailable[name] = "尚未填写商户参数"
+                continue
+            if not self.notify_origin:
+                self.unavailable[name] = "尚未配置支付回调公网地址（ITP_PUBLIC_ORIGIN）"
+                continue
+            try:
+                self.providers[name] = factory(settings, transport=self.transport)
+            except PaymentError:
+                self.unavailable[name] = "支付凭据未通过服务端校验"
+                logger.warning("Payment provider %s configuration is invalid", name)
+        if settings.payment_mock_enabled:
+            self.providers["mock"] = MockProvider(settings, self.accounts)
+        return self.status()
+
+    def status(self):
+        """Per-channel readiness and callback URLs for the operator console."""
+        channels = [
+            {
+                "id": name,
+                "ready": name in self.providers,
+                "reason": "" if name in self.providers else self.unavailable.get(
+                    name, "平台未启用该支付方式"
+                ),
+            }
+            for name in ("alipay", "wechat")
+        ]
+        if "mock" in self.providers:
+            channels.append({"id": "mock", "ready": True, "reason": "仅开发测试环境可用"})
+        return {
+            "notify_origin": self.notify_origin,
+            "callbacks": {
+                name: f"{self.notify_origin}/api/payments/callbacks/{name}"
+                if self.notify_origin
+                else ""
+                for name in ("alipay", "wechat")
+            },
+            "channels": channels,
+        }
+
+    def probe(self, name):
+        """Ask the channel itself whether the stored credentials really work."""
+        if name == "mock":
+            return {"channel": name, "ok": "mock" in self.providers, "message": "模拟支付无需校验"}
+        provider = self.providers.get(name)
+        if provider is None:
+            return {
+                "channel": name,
+                "ok": False,
+                "message": self.unavailable.get(name, "平台尚未启用该支付方式"),
+            }
+        try:
+            provider.verify_credentials()
+        except PaymentError as exc:
+            return {"channel": name, "ok": False, "message": f"渠道校验未通过：{exc}"}
+        except Exception as exc:  # noqa: BLE001 - never surface internals to the console
+            logger.warning(
+                "Payment credential probe failed for %s: %s", name, type(exc).__name__
+            )
+            return {
+                "channel": name,
+                "ok": False,
+                "message": "渠道校验未完成，请检查服务器网络与该商户的接口权限",
+            }
+        return {"channel": name, "ok": True, "message": "凭据已通过官方接口校验"}
+
+    def probe_all(self):
+        return [self.probe(name) for name in ("alipay", "wechat")]
 
     def methods(self):
         return [
