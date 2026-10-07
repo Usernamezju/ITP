@@ -4,8 +4,8 @@ import {
   RefreshCw, ShieldCheck, Users, Wallet,
 } from 'lucide-react';
 import {
-  ApiError, type AdminAccount, type AdminJobs, type AdminOrder, type AdminProviderSettings,
-  type AdminStatus, type AdminUsage,
+  ApiError, type AdminAccount, type AdminJobs, type AdminOrder, type AdminPaymentDocument,
+  type AdminPaymentUpdate, type AdminProviderSettings, type AdminStatus, type AdminUsage,
 } from './api';
 import { accountApi, logoutAccount, useAccountSession, type Account } from './accountApi';
 import { stageLabels } from './jobView';
@@ -18,9 +18,13 @@ import './AdminPage.css';
  * The platform operator console at `/admin`.  It is the developer's view of the
  * running system: which model services are configured and reachable, how the
  * customers and shops are using the platform, and which tasks the server still
- * holds.  It is read-only on purpose — credentials live in the server `.env`,
- * never in a browser — and it is reachable only by an account whose role is
- * `admin`, which exists solely because an operator ran `scripts/create_admin.py`.
+ * holds.  Model credentials stay read-only — they live in the server `.env` and
+ * never in a browser — with one deliberate exception: the merchant keys of the
+ * real Alipay and WeChat channels can only come from the operator's own payment
+ * accounts, so the payment section posts them once to the server, which stores
+ * them in its settings file and reports back readiness only.  The console is
+ * reachable only by an account whose role is `admin`, which exists solely
+ * because an operator ran `scripts/create_admin.py`.
  */
 
 const roleLabels: Record<string, string> = {
@@ -102,7 +106,7 @@ export default function AdminPage() {
     <header className="admin-topbar">
       <div className="admin-brand">
         <ShieldCheck size={19} />
-        <div><strong>ITP 系统管理后台</strong><small>平台运维控制台 · 只读</small></div>
+        <div><strong>ITP 系统管理后台</strong><small>平台运维控制台 · 仅支付配置可写</small></div>
       </div>
       <nav className="admin-topnav" aria-label="站点导航">
         <a href="/">顾客端</a><a href="/merchant">商家端</a><a href="/docs">接口文档</a>
@@ -212,6 +216,10 @@ function AdminDashboard({ account, onSignOut }: { account: Account; onSignOut: (
       {/* Ten provider blocks would stretch any column to twice its neighbours. */}
       <Section wide title="模型服务配置（只读）" icon={<KeyRound size={15} />}
         loadable={sections.settings} render={(data) => <SettingsSection settings={data} />} />
+      <section className="admin-section wide">
+        <h2 className="admin-section-title"><Wallet size={15} />支付配置（可写）</h2>
+        <PaymentConfigSection onSaved={() => void load()} />
+      </section>
     </div>}
   </main>;
 }
@@ -367,8 +375,8 @@ function SettingsSection({ settings }: { settings: AdminProviderSettings }) {
       ] },
   ];
   return <>
-    <p className="admin-note">凭据由服务器 <code>.env</code> 管理，此页只读：密钥只显示是否已配置，
-      修改配置需要运维人员编辑服务器上的 <code>.env</code> 并重启服务。</p>
+    <p className="admin-note">模型凭据由服务器 <code>.env</code> 管理，本节只读：密钥只显示是否已配置，
+      修改模型配置需要运维人员编辑服务器上的 <code>.env</code> 并重启服务；支付凭据在下方「支付配置」中填写。</p>
     <div className="admin-providers">{sections.map((section) =>
       <section className="settings-section" key={section.number}>
         <div className="settings-section-title"><span>{section.number}</span>
@@ -376,6 +384,166 @@ function SettingsSection({ settings }: { settings: AdminProviderSettings }) {
         <ProviderRows rows={section.rows} />
       </section>)}</div>
   </>;
+}
+
+type PaymentFields = AdminPaymentUpdate;
+type PaymentField = {
+  key: keyof PaymentFields; label: string; hint: string;
+  area?: boolean; password?: boolean; configured?: boolean;
+};
+
+/**
+ * The one writable section of the console.  Merchant credentials can only come
+ * from the operator's own Alipay/WeChat accounts, so they are typed here and
+ * posted once: the server validates the key material, writes it to its own
+ * settings file and reports back only readiness and the official probe result.
+ * Nothing the operator typed is ever rendered again.
+ */
+function PaymentConfigSection({ onSaved }: { onSaved: () => void }) {
+  const [document, setDocument] = useState<AdminPaymentDocument | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [fields, setFields] = useState<PaymentFields>({});
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  // Kept apart from the document so the refresh that follows a save cannot
+  // wipe the probe results the operator needs to read.
+  const [checks, setChecks] = useState<{ channel: string; ok: boolean; message: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoadError('');
+    try {
+      setDocument(await accountApi<AdminPaymentDocument>('/api/admin/payments'));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) sessionToken.write('');
+      setLoadError(err instanceof Error ? err.message : '读取失败');
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  function change(key: keyof PaymentFields, value: string) {
+    setFields((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError(''); setNotice(''); setChecks([]);
+    try {
+      const result = await accountApi<AdminPaymentDocument>(
+        '/api/admin/payments/config', 'POST', fields);
+      setDocument(result);
+      setFields({});
+      setChecks(result.checks || []);
+      const failed = (result.checks || []).filter((check) => !check.ok);
+      setNotice(failed.length
+        ? `配置已保存到服务器；${failed.map((check) => check.message).join('；')}`
+        : '配置已保存到服务器，渠道已重新加载并通过官方接口校验。');
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeKey(identifier: string) {
+    if (busy) return;
+    setBusy(true); setError(''); setNotice(''); setChecks([]);
+    try {
+      setDocument(await accountApi<AdminPaymentDocument>(
+        '/api/admin/payments/config', 'POST', { wechat_platform_key_remove: identifier }));
+      setNotice(`已移除微信支付公钥 ${identifier}。`);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loadError) {
+    return <p role="alert" className="admin-error"><AlertCircle size={14} />支付配置读取失败：{loadError}</p>;
+  }
+  if (!document) return <p className="muted" role="status">正在读取支付配置…</p>;
+
+  const { alipay, wechat } = document.settings;
+  const groups: { id: string; title: string; hint: string; fields: PaymentField[] }[] = [
+    { id: 'alipay', title: '支付宝', hint: '在支付宝开放平台创建网页/APP 支付应用后获取',
+      fields: [
+        { key: 'alipay_app_id', label: 'APP_ID', hint: '应用 APPID', configured: alipay.app_id_set },
+        { key: 'alipay_seller_id', label: 'SELLER_ID', hint: '商户 UID（2088 开头）', configured: alipay.seller_id_set },
+        { key: 'alipay_private_key', label: '应用私钥', hint: 'PKCS#8 或 PKCS#1，2048 位以上', area: true, configured: alipay.private_key_set },
+        { key: 'alipay_public_key', label: '支付宝公钥', hint: '支付宝公钥或应用公钥证书', area: true, configured: alipay.public_key_set },
+      ] },
+    { id: 'wechat', title: '微信支付', hint: '在微信支付商户平台开通 Native 支付后获取',
+      fields: [
+        { key: 'wechat_app_id', label: 'APP_ID', hint: '绑定的公众号/应用 APPID', configured: wechat.app_id_set },
+        { key: 'wechat_mch_id', label: 'MCH_ID', hint: '微信支付商户号', configured: wechat.mch_id_set },
+        { key: 'wechat_merchant_serial', label: '商户证书序列号', hint: '商户 API 证书的序列号', configured: wechat.merchant_serial_set },
+        { key: 'wechat_private_key', label: '商户私钥', hint: 'apiclient_key.pem 的内容', area: true, configured: wechat.private_key_set },
+        { key: 'wechat_api_v3_key', label: 'APIv3 密钥', hint: '32 位 APIv3 密钥', password: true, configured: wechat.api_v3_key_set },
+        { key: 'wechat_platform_key_id', label: '微信支付公钥 ID', hint: '公钥 ID，回调验签用' },
+        { key: 'wechat_platform_public_key', label: '微信支付公钥', hint: '公钥或平台证书内容', area: true },
+      ] },
+  ];
+  return <form className="admin-payment" onSubmit={(event) => void submit(event)}>
+    <p className="admin-note">凭据只写入服务器配置文件（权限 600），接口只回传“是否已配置”和渠道状态，
+      不会把任何密钥返回页面、写进日志或提交到 Git。保存后服务器立即重新加载支付渠道，
+      并用一笔探测查询向官方接口校验凭据。</p>
+    <div className="admin-payment-status">{document.status.channels.map((channel) =>
+      <div className="admin-payment-channel" key={channel.id}>
+        <b className={channel.ready ? 'admin-pill ready' : 'admin-pill'}>
+          {channel.ready ? '可用' : '未就绪'}</b>
+        <div><strong>{channel.id === 'alipay' ? '支付宝' : channel.id === 'wechat' ? '微信支付' : '模拟支付'}</strong>
+          <small>{channel.ready ? '服务器已加载该渠道' : channel.reason}</small>
+          {checks.filter((check) => check.channel === channel.id).map((check) =>
+            <small key={check.channel} className={check.ok ? 'admin-check ok' : 'admin-check bad'}>
+              {check.ok ? '✓ ' : '× '}{check.message}</small>)}</div>
+      </div>)}</div>
+    {document.status.notify_origin
+      ? <p className="admin-note">回调地址（在商户平台按此填写）：支付宝 <code>{document.status.callbacks.alipay}</code>，
+          微信支付 <code>{document.status.callbacks.wechat}</code>。</p>
+      : <p role="alert" className="admin-error"><AlertCircle size={14} />
+          服务器尚未配置公网回调地址（ITP_PUBLIC_ORIGIN），支付渠道在补上之前不会启用。</p>}
+    {groups.map((group) => <section className="settings-section" key={group.id}>
+      <div className="settings-section-title"><span>{group.id === 'alipay' ? '01' : '02'}</span>
+        <div><h3>{group.title}</h3><p>{group.hint}</p></div></div>
+      <div className="admin-payment-fields">{group.fields.map((field) => {
+        const value = fields[field.key] ?? '';
+        return <label key={field.key} className={field.area ? 'wide' : ''}>
+          <span className="admin-payment-label">{field.label}
+            <i className={field.configured ? 'admin-pill ready' : 'admin-pill'}>
+              {field.configured ? '已配置' : '未配置'}</i></span>
+          {field.area
+            ? <textarea rows={4} spellCheck={false} autoComplete="off" value={value}
+                aria-label={field.label} onChange={(event) => change(field.key, event.target.value)} />
+            : <input type={field.password ? 'password' : 'text'} spellCheck={false} autoComplete="off"
+                value={value} aria-label={field.label}
+                onChange={(event) => change(field.key, event.target.value)} />}
+          <small>{field.hint}</small>
+        </label>;
+      })}</div>
+      {group.id === 'wechat' && <div className="admin-payment-keys">
+        <span>已登记的公钥 ID：</span>
+        {wechat.platform_key_ids.length
+          ? wechat.platform_key_ids.map((identifier) => <span className="admin-payment-key" key={identifier}>
+              <code>{identifier}</code>
+              <button type="button" className="text-button" disabled={busy}
+                onClick={() => void removeKey(identifier)}>移除</button></span>)
+          : <small>尚未登记公钥；请在上面填写公钥 ID 与公钥内容。</small>}
+      </div>}
+    </section>)}
+    {error && <p role="alert" className="admin-error"><AlertCircle size={14} />{error}</p>}
+    {notice && <p role="status" className="admin-notice">{notice}</p>}
+    <div className="admin-payment-actions">
+      <button type="submit" className="button" disabled={busy || Object.keys(fields).length === 0}>
+        {busy ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
+        {busy ? '正在保存并校验…' : '保存并校验'}
+      </button>
+      <small>只保存本次填写过的字段；把某个字段内容清空再保存即可清除该值。</small>
+    </div>
+  </form>;
 }
 
 function AccountsSection({ accounts }: { accounts: Accounts }) {
