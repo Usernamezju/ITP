@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -92,6 +93,7 @@ from itp.provider_settings import (
     write_env_values,
 )
 from itp.private_jobs import PrivateFaceStore, PrivateTryOnStore
+from itp.product_ai import ProductAiError, ProductDescriber, fetch_product_image, preview_jpeg
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
 from itp.tryon import TryOnRequest, TryOnWorker
@@ -166,6 +168,13 @@ class MerchantLoginRequest(BaseModel):
 
     name: str
     password: str
+
+
+class ProductImportRequest(BaseModel):
+    """One shop or image link the merchant wants described."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=1, max_length=2048)
 
 
 class MerchantPasswordRequest(BaseModel):
@@ -287,6 +296,9 @@ def public_settings(settings: Settings) -> dict:
     Secrets are reported as booleans only, never echoed back.
     """
     return public_provider_settings(settings) | {
+        "product_ai_endpoint": settings.product_ai_endpoint,
+        "product_ai_model": settings.product_ai_model,
+        "product_ai_api_key_set": bool(settings.product_ai_key),
         "image_provider": settings.image_provider,
         "unsplash_access_key_set": bool(settings.unsplash_access_key.get_secret_value()),
         "pixabay_api_key_set": bool(settings.pixabay_api_key.get_secret_value()),
@@ -309,6 +321,7 @@ def create_app(
     config_path: Path = Path(".env"),
     frontend_dir: Path | None = None,
     payment_transport: httpx.BaseTransport | None = None,
+    product_ai_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     store = TransientStore(settings.data_dir)
@@ -322,10 +335,12 @@ def create_app(
     merchants = MerchantStore(settings.data_dir, settings)
     pipeline.commerce = merchants.commerce
     avatars = AvatarStore(settings.data_dir / "avatars")
+    product_ai = ProductDescriber(settings, transport=product_ai_transport)
     settings_lock = threading.Lock()
     face_lock = threading.Lock()
     auth_limiter = AuthLimiter()
     avatar_limiter = AuthLimiter()
+    product_limiter = AuthLimiter()
     janitor_stop = threading.Event()
 
     def janitor():
@@ -623,6 +638,8 @@ def create_app(
                 "flux_klein_9b": flux_klein_health("flux_klein_9b"),
             },
             "payments": app.state.payments.methods(),
+            "product_ai": {"ready": current.product_ai_ready,
+                           "model": current.product_ai_model},
         }
 
     @app.get("/api/admin/settings", include_in_schema=False,
@@ -1165,6 +1182,34 @@ def create_app(
             password_hash=merchant["password_hash"],
         )
         return {"access_token": token, "token_type": "bearer", "expires_in": expires_in}
+
+    @app.post("/api/merchant/import-link")
+    async def merchant_import_link(body: ProductImportRequest,
+                                   merchant: dict = Depends(current_merchant)):
+        """Describe a product link for the form; nothing is stored or published.
+
+        The picture is fetched by the server, downscaled, and sent to the
+        operator's vision model, so the merchant's browser never needs a key and
+        the merchant still decides what to save.
+        """
+        product_limiter.check(("product-import", merchant["id"]), attempts=20, seconds=3600)
+        try:
+            data, _content_type, source = await asyncio.to_thread(
+                fetch_product_image, body.url)
+            preview, width, height = await asyncio.to_thread(preview_jpeg, data)
+            fields = await asyncio.to_thread(product_ai.describe, preview)
+        except ProductAiError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {
+            "fields": fields,
+            "image": {
+                "data_url": "data:image/jpeg;base64," + base64.b64encode(preview).decode(),
+                "width": width,
+                "height": height,
+                "source_url": source,
+            },
+            "model": app.state.settings.product_ai_model,
+        }
 
     @app.get("/api/merchant/me")
     def merchant_me(merchant: dict = Depends(current_merchant)):

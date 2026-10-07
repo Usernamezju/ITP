@@ -197,3 +197,30 @@ export function updateLook(id: string, patch: Partial<LookDraft>) {
 export function deleteLook(id: string): Promise<void> {
   return api<void>(`/api/merchant/looks/${id}`, { method: 'DELETE', headers: authHeaders() });
 }
+
+export type LinkImportFields = {
+  name: string; category: string; color: string | null; color_name: string | null;
+  style: string | null; season: string | null; occasion: string | null;
+  silhouette: string | null; stretch: string | null; length_type: string | null;
+  description: string | null; tags: string[]; uncertain: string[]; confidence: number | null;
+};
+export type LinkImport = {
+  fields: LinkImportFields;
+  image: { data_url: string; width: number; height: number; source_url: string };
+  model: string;
+};
+
+/** Ask the server to read a shop link and describe the product on it. */
+export function importProductLink(url: string): Promise<LinkImport> {
+  return api<LinkImport>('/api/merchant/import-link', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ url }),
+  });
+}
+
+/** Turn the server's preview back into a file the upload flow already accepts. */
+export async function previewFile(dataUrl: string, name: string): Promise<File> {
+  const blob = await (await fetch(dataUrl)).blob();
+  return new File([blob], name, { type: blob.type || 'image/jpeg' });
+}

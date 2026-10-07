@@ -275,6 +275,32 @@ API 启动在写事务内检查 `PRAGMA table_info(garments)`，仅新增 nullab
 与指标 JSON 同事务写入。迁移可重复运行，不重建或清空账号、商品、钱包、
 订单、会员或任务。升级前使用 SQLite 在线备份 API 备份原库。
 
+## AI 从商品链接生成字段
+
+商家在「新建商品」的基本信息里填一个链接，点「AI 识别」，服务器就会读取
+页面主图并生成卡片需要的结构化字段：
+
+- `POST /api/merchant/import-link`（商家 JWT，`extra="forbid"`，只接受 `url`）
+  返回 `fields`（name/category/color/color_name/style/season/occasion/silhouette/
+  stretch/length_type/description/tags/uncertain/confidence）、`image`
+  （`data_url`、宽高、来源 URL）和实际使用的 `model`。**接口不写库**：只把结果
+  交给表单，是否发布仍由商家决定；页面上会标明哪些字段是 AI 填的、哪些需要核对。
+- 取值一律按平台词表过滤：品类/风格/季节/版型/弹性/长度必须命中 `garment-options`
+  的枚举，颜色必须是 `#RRGGBB`，描述与标签按字段上限截断，编造的值直接丢弃，
+  因此识别结果永远不会让表单提交出 422。
+- **抓取守卫**：只允许 `http`/`https`，拒绝内网、回环、链路本地与保留地址
+  （含 DNS 解析后的地址），最多跟随 3 次跳转且每一跳都重新校验，单文件 8 MiB、
+  页面 1 MiB、超时 12 秒；HTML 只读 `og:image`/`twitter:image` 这类社交卡片主图，
+  不执行页面脚本。图片随后被重新编码为最长边 1024 的 JPEG，**EXIF 一并丢弃**，
+  这份副本既用于页面预览也用于识别请求。
+- 识别调用走服务端凭据（`ITP_PRODUCT_AI_*`，密钥缺省回落到姿势编辑那把
+  `ITP_POSE_API_KEY`），浏览器永远拿不到密钥；每个商家每小时最多 20 次，失败时
+  返回中文原因（链接无法访问 / 指向内网 / 没有主图 / 识别服务暂不可用）。
+- 当前默认模型是千问视觉（`qwen-vl-max`）：**SeedDream 是图像生成模型，不能读图**，
+  且其方舟账号欠费时连生成都会 403。任何 OpenAI 兼容的视觉 chat 接口都可以替换，
+  例如把端点指向 `https://ark.cn-beijing.volces.com/api/v3/chat/completions`、
+  模型改成已开通的 Seed 视觉模型、密钥填方舟 Key，无需改代码。
+
 ## 点击统计与商家数据概览
 
 - `POST /api/garments/{id}/clicks`：公开购买入口，201 返回 `click_id` 和当前

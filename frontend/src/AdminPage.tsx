@@ -367,7 +367,13 @@ function SettingsSection({ settings }: { settings: AdminProviderSettings }) {
         { label: '模型', value: settings.faceverse_model },
         { label: 'API Key', value: String(settings.faceverse_api_key_set), secret: true },
       ] },
-    { number: '10', title: '穿搭图片检索', detail: '为穿搭推荐获取真实穿搭图片',
+    { number: '10', title: '商品图片识别', detail: '商家粘贴商品链接后自动填写卡片字段',
+      rows: [
+        { label: '服务地址', value: settings.product_ai_endpoint },
+        { label: '模型', value: settings.product_ai_model },
+        { label: 'API Key', value: String(settings.product_ai_api_key_set), secret: true },
+      ] },
+    { number: '11', title: '穿搭图片检索', detail: '为穿搭推荐获取真实穿搭图片',
       rows: [
         { label: '当前图源', value: settings.image_provider },
         { label: 'Unsplash Access Key', value: String(settings.unsplash_access_key_set), secret: true },

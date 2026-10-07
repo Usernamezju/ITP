@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertCircle, Check, ImagePlus, KeyRound, LoaderCircle, LogOut, Package, Plus, Ruler,
-  Store, Trash2, Upload,
+  Sparkles, Store, Trash2, Upload,
 } from 'lucide-react';
 import { ApiError } from './api';
+import {
+  importProductLink, previewFile, type LinkImportFields,
+} from './merchantApi';
 import { logoutAccount } from './accountApi';
 import { AvatarImage } from './Avatar';
 import { SESSION_EVENT } from './session';
@@ -279,6 +282,57 @@ function AuthPanel({ onSignedIn, onError }: {
 
 // --- garment editor ----------------------------------------------------------
 
+/** Merchant convenience: read a shop link and prefill the form from it. */
+function LinkImport({ onFill, onError }: {
+  onFill: (fields: LinkImportFields, image: File) => void;
+  onError: (message: string) => void;
+}) {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ model: string; fields: LinkImportFields } | null>(null);
+  const labels: [keyof LinkImportFields, string][] = [
+    ['name', '名称'], ['category', '品类'], ['color', '颜色'], ['style', '风格'],
+    ['season', '季节'], ['occasion', '场合'], ['silhouette', '版型'], ['stretch', '弹性'],
+    ['length_type', '长度'], ['description', '描述'],
+  ];
+
+  async function run(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !url.trim()) return;
+    setBusy(true);
+    onError('');
+    setResult(null);
+    try {
+      const answer = await importProductLink(url.trim());
+      const name = `${(answer.fields.name || '商品主图').replace(/[\\/:*?"<>|]/g, '')}.jpg`;
+      onFill(answer.fields, await previewFile(answer.image.data_url, name));
+      setResult({ model: answer.model, fields: answer.fields });
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '链接识别失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const filled = result ? labels.filter(([key]) => result.fields[key]).map(([, label]) => label) : [];
+  return <form className="merchant-import" onSubmit={(event) => void run(event)}>
+    <label className="field-label" htmlFor="g-import-url"><Sparkles size={12} /> 从商品链接生成</label>
+    <div className="merchant-import-row">
+      <input id="g-import-url" className="text-input" maxLength={2048}
+        placeholder="粘贴淘宝 / 天猫 / 京东 / 品牌官网链接，或图片直链"
+        value={url} onChange={(event) => setUrl(event.target.value)} />
+      <button className="button small" disabled={busy || !url.trim()}>
+        {busy ? <><LoaderCircle size={13} className="spin" /> 识别中…</> : 'AI 识别'}</button>
+    </div>
+    <small>服务器读取页面主图后，由平台配置的图片识别模型（当前 {result?.model || '平台模型'}）
+      生成名称、品类、颜色、风格等字段和一张商品图。结果只是草稿，保存前请核对。</small>
+    {result && <p role="status" className="merchant-import-note">
+      已填入{result.model ? `（${result.model}）` : ''}：{filled.join('、') || '无可用字段'}；
+      商品图已加入待上传列表。{result.fields.tags.length ? `关键词：${result.fields.tags.join('、')}。` : ''}
+      {result.fields.uncertain.length ? `请重点核对：${result.fields.uncertain.join('；')}。` : ''}</p>}
+  </form>;
+}
+
 function GarmentEditor({ options, garment, onSaved, onCancel, onError }: {
   options: GarmentOptions; garment: MerchantGarment | null;
   onSaved: () => void; onCancel: () => void; onError: (message: string) => void;
@@ -292,6 +346,27 @@ function GarmentEditor({ options, garment, onSaved, onCancel, onError }: {
   const limits = options.limits;
 
   const update = (patch: Partial<Draft>) => setDraft((old) => ({ ...old, ...patch }));
+
+  const applyImport = (fields: LinkImportFields, image: File) => {
+    // Only the fields the model was confident about; the rest stay as typed.
+    setDraft((current) => ({
+      ...current,
+      name: fields.name || current.name,
+      category: fields.category || current.category,
+      style: fields.style || current.style,
+      season: fields.season || current.season,
+      occasion: fields.occasion || current.occasion,
+      description: fields.description || current.description,
+      color: fields.color || current.color,
+      silhouette: fields.silhouette || current.silhouette,
+      stretch: fields.stretch || current.stretch,
+      length_type: fields.length_type || current.length_type,
+    }));
+    setTouched(true);
+    const room = limits.images_max - (garment?.images.length || 0) - files.length;
+    if (room > 0) setFiles((old) => [...old, image]);
+    else onError('商品图已达上限，本次只填入了文字字段，请自行选择商品图');
+  };
 
   const pickFiles = (chosen: FileList | null) => {
     if (!chosen) return;
@@ -353,6 +428,7 @@ function GarmentEditor({ options, garment, onSaved, onCancel, onError }: {
     <div className="merchant-form-grid">
       <section className="merchant-form-block">
         <h3><Package size={13} /> 基本信息</h3>
+        <LinkImport onFill={applyImport} onError={onError} />
         <label className="field-label" htmlFor="g-name">商品名称</label>
         <input id="g-name" className={`text-input ${field('name') ? 'invalid' : ''}`}
           maxLength={limits.name_max} value={draft.name}

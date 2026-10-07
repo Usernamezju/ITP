@@ -119,6 +119,7 @@ export type AdminProviderSettings = {
   flux_klein_9b_endpoint: string; flux_klein_9b_model: string; flux_klein_9b_api_key_set: boolean;
   gpt_image_endpoint: string; gpt_image_model: string; gpt_image_api_key_set: boolean;
   faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
+  product_ai_endpoint: string; product_ai_model: string; product_ai_api_key_set: boolean;
   image_provider: string; unsplash_access_key_set: boolean; pixabay_api_key_set: boolean;
 };
 export type AdminPaymentChannel = { id: string; ready: boolean; reason: string };

@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 KLEIN_PROVIDERS = ("flux_klein", "flux_klein_9b")
 BFL_PROVIDERS = ("flux", "flux_max")
 HAIJING_GENERATION_ENDPOINT = "https://api.haijingai.com/v2/images/generations"
+PRODUCT_AI_ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 
 class Settings(BaseSettings):
@@ -45,6 +46,12 @@ class Settings(BaseSettings):
     faceverse_endpoint: str = ""
     faceverse_api_key: SecretStr = SecretStr("")
     faceverse_model: str = "faceverse-v4"
+    # Product-image understanding for the merchant console.  Any OpenAI-compatible
+    # vision chat endpoint works; the key defaults to the pose credential, which
+    # is the same mainland vendor account.
+    product_ai_endpoint: str = PRODUCT_AI_ENDPOINT
+    product_ai_model: str = "qwen-vl-max"
+    product_ai_api_key: SecretStr = SecretStr("")
     image_provider: str = "so"
     unsplash_access_key: SecretStr = SecretStr("")
     pixabay_api_key: SecretStr = SecretStr("")
@@ -128,6 +135,18 @@ class Settings(BaseSettings):
                 or url.path != "/api/v1/services/aigc/multimodal-generation/generation"
             ):
                 raise ValueError("Pose endpoint must be a mainland Model Studio generation URL")
+        if self.product_ai_endpoint:
+            url = urlparse(self.product_ai_endpoint)
+            if (
+                url.scheme != "https"
+                or not url.hostname
+                or url.username
+                or url.password
+                or url.query
+                or url.fragment
+                or not url.path.endswith("/chat/completions")
+            ):
+                raise ValueError("Product AI endpoint must be an HTTPS chat/completions URL")
         if self.seedream_endpoint and self.seedream_endpoint != "https://ark.cn-beijing.volces.com/api/v3/images/generations":
             raise ValueError("Seedream endpoint must be the mainland Ark image generations URL")
         for name, suffix in (
@@ -213,6 +232,18 @@ class Settings(BaseSettings):
                 "flux_klein": self.flux_klein_model,
                 "flux_klein_9b": self.flux_klein_9b_model,
                 "gpt_image": self.gpt_image_model}[provider]
+
+    @property
+    def product_ai_key(self) -> str:
+        """The vision credential, falling back to the pose key of the same vendor."""
+        return (
+            self.product_ai_api_key.get_secret_value()
+            or self.pose_api_key.get_secret_value()
+        )
+
+    @property
+    def product_ai_ready(self) -> bool:
+        return bool(self.product_ai_endpoint and self.product_ai_model and self.product_ai_key)
 
     @property
     def faceverse_ready(self) -> bool:

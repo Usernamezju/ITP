@@ -69,6 +69,10 @@ function garment(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR42mP8z8DAwMgABIxgCoQBAF8kAgHh2GJ3AAAAAElFTkSuQmCC',
+  'base64');
+
 type Recorded = { method: string; path: string; body: string };
 
 /**
@@ -77,6 +81,8 @@ type Recorded = { method: string; path: string; body: string };
  */
 async function openConsole(page: Page, state: {
   signedIn?: boolean; goods?: unknown[]; looks?: unknown[];
+  /** Answer the AI import route with this Chinese failure instead. */
+  importError?: string;
 } = {}) {
   const calls: Recorded[] = [];
   const goods = [...(state.goods ?? [garment('g1'), garment('g2', {
@@ -112,6 +118,17 @@ async function openConsole(page: Page, state: {
       await route.fulfill({ json: { logged_out: true } });
     } else if (pathname === '/api/garment-options') {
       await route.fulfill({ json: options });
+    } else if (pathname === '/api/merchant/import-link' && state.importError) {
+      await route.fulfill({ status: 422, json: { detail: state.importError } });
+    } else if (pathname === '/api/merchant/import-link') {
+      await route.fulfill({ json: {
+        fields: { name: '深蓝立领风衣', category: '外套', color: '#1F2A44', color_name: '藏蓝',
+          style: '通勤', season: '秋', occasion: '通勤办公', silhouette: '修身', stretch: '微弹',
+          length_type: '常规', description: '深蓝立领风衣，双排扣设计，适合通勤与日常出行。',
+          tags: ['立领', '双排扣'], uncertain: ['请核对面料成分'], confidence: 0.9 },
+        image: { data_url: 'data:image/png;base64,' + PNG.toString('base64'),
+          width: 8, height: 8, source_url: 'https://item.example.com/9' },
+        model: 'qwen-vl-max' } });
     } else if (pathname === '/api/merchant/me') {
       await route.fulfill({ json: { ...profile, garment_count: goods.length } });
     } else if (pathname === '/api/merchant/analytics') {
@@ -356,4 +373,38 @@ test('a dangerous purchase destination is rejected beside the field', async ({ p
   await page.getByRole('button', { name: '保存并发布' }).click();
   await expect.poll(() => writes(calls, '/api/merchant/garments').length).toBe(1);
   expect(writes(calls, '/api/merchant/garments')[0].body).toContain('"purchase_url":"https://item.jd.com/123.html"');
+});
+
+test('a shop link fills the product form through the server-side model', async ({ page }) => {
+  const calls = await openConsole(page);
+  await page.getByRole('button', { name: /新建商品/ }).first().click();
+
+  await page.getByLabel('从商品链接生成').fill('https://item.example.com/9');
+  await page.getByRole('button', { name: 'AI 识别' }).click();
+
+  // The merchant sees what came back, and the picture is attached for upload.
+  const note = page.getByRole('status').filter({ hasText: '已填入' });
+  await expect(note).toContainText('名称、品类、颜色、风格、季节、场合、版型、弹性、长度、描述');
+  await expect(note).toContainText('请重点核对：请核对面料成分');
+  await expect(page.getByLabel('商品名称')).toHaveValue('深蓝立领风衣');
+  await expect(page.getByLabel('品类')).toHaveValue('外套');
+  await expect(page.getByLabel('风格')).toHaveValue('通勤');
+  await expect(page.getByLabel('季节')).toHaveValue('秋');
+  await expect(page.getByLabel('商品描述')).toHaveValue(/双排扣/);
+  await expect(page.getByText('深蓝立领风衣.jpg')).toBeVisible();
+
+  // The link itself travels to the server, which owns the model credential.
+  const sent = calls.find((call) => call.path === '/api/merchant/import-link');
+  expect(JSON.parse(sent?.body || '{}')).toEqual({ url: 'https://item.example.com/9' });
+  // Nothing was saved: the merchant still decides what to publish.
+  expect(calls.filter((call) => call.method === 'POST' && call.path === '/api/merchant/garments')).toHaveLength(0);
+});
+
+test('a refused link explains itself and fills nothing', async ({ page }) => {
+  await openConsole(page, { importError: '该链接指向内网或不可访问的地址' });
+  await page.getByRole('button', { name: /新建商品/ }).first().click();
+  await page.getByLabel('从商品链接生成').fill('http://127.0.0.1/x');
+  await page.getByRole('button', { name: 'AI 识别' }).click();
+  await expect(page.locator('.error-banner')).toContainText('内网');
+  await expect(page.getByLabel('商品名称')).toHaveValue('');
 });
