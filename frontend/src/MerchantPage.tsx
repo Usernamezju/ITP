@@ -255,8 +255,8 @@ function AuthPanel({ onSignedIn, onError }: {
         <input id="merchant-display" className="text-input" required
           placeholder="展示在推荐页上的名称" value={fields.display_name}
           onChange={(event) => setFields({ ...fields, display_name: event.target.value })} />
-        <label className="field-label" htmlFor="merchant-contact">联系方式</label>
-        <input id="merchant-contact" className="text-input" placeholder="选填，例如邮箱"
+        <label className="field-label" htmlFor="merchant-contact">手机号</label>
+        <input id="merchant-contact" className="text-input" inputMode="tel" placeholder="选填，例如 13800000000"
           value={fields.contact}
           onChange={(event) => setFields({ ...fields, contact: event.target.value })} />
       </>}

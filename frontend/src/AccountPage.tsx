@@ -70,7 +70,7 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
       {mode === 'register' && <>
         <label>昵称 / 商家名称<input className="text-input" required maxLength={40} value={fields.display_name}
           onChange={(event) => setFields({ ...fields, display_name: event.target.value })} /></label>
-        <label>联系方式<input className="text-input" maxLength={80} value={fields.contact}
+        <label>手机号<input className="text-input" maxLength={80} inputMode="tel" value={fields.contact}
           onChange={(event) => setFields({ ...fields, contact: event.target.value })} /></label>
         <label>账号身份<select className="text-input" value={fields.role}
           onChange={(event) => setFields({ ...fields, role: event.target.value })}>
@@ -94,7 +94,7 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
             <span className="account-display-name">{user.display_name}</span></div></div>
         <label>昵称 / 商家名称<input className="text-input" required maxLength={40} value={profile.display_name}
           onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></label>
-        <label>联系方式<input className="text-input" maxLength={80} value={profile.contact}
+        <label>手机号<input className="text-input" maxLength={80} inputMode="tel" value={profile.contact}
           onChange={(event) => setProfile({ ...profile, contact: event.target.value })} /></label>
         <div className="account-profile-actions"><button className="button primary" disabled={busy}>
           {busy ? <><LoaderCircle size={15} className="spin" />正在处理…</> : '保存个人资料'}</button>

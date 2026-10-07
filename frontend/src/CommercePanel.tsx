@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, ChartNoAxesColumn, ChevronRight, Coins, Crown, RefreshCw, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ChartNoAxesColumn, ChevronRight, Crown, RefreshCw, Wallet } from 'lucide-react';
 import { accountApi, type Account } from './accountApi';
 import { yuanText } from './money';
 import { PaymentPanel } from './PaymentPanel';
@@ -77,13 +77,7 @@ export function CommercePanel({ user, children }: { user: Account; children?: Re
         <small>{memberPlan ? `${memberPlan.name}：¥${yuanText(memberPlan.price_cents)} / ${memberPlan.period_months} 个月`
           : data ? '暂时没有可购买的会员套餐' : '正在读取会员信息…'}</small>
       </section>
-      <section className="account-overview-card" aria-label="调用价格">
-        <span className="account-metric-icon pricing"><Coins size={28} aria-hidden="true" /></span>
-        <div className="account-metric-copy"><span>调用价格</span>
-          <strong className="account-price">{data ? `¥${yuanText(data.pricing.model_price_cents)} / 次` : '—'}</strong></div>
-        <small>人体建模 · 按次扣费<br />仅属于当前 ITP 账号 · {user.display_name}</small>
-      </section>
-    </div>
+      </div>
     {!data && <p role="status" className="account-funds-loading">{loading ? '正在读取钱包…' : '暂时无法读取钱包，请点击刷新重试。'}</p>}
     {children}
     <PaymentPanel key={user.id} plans={plans} onPaid={() => { setLedgerOffset(0); reload(); }} />

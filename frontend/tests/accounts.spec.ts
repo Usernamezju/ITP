@@ -70,7 +70,9 @@ test('avatar opens unified registration and restores the session on reload', asy
   await page.getByRole('button', { name: '注册并登录' }).click();
   await expect(page.getByRole('heading', { name: '个人资料' })).toBeVisible();
   await expect(page.getByText('¥87.65', { exact: true })).toBeVisible();
-  await expect(page.getByText('¥23.45 / 次', { exact: true })).toBeVisible();
+  // The price now lives inside the collapsed 会员与使用权益 section.
+  await page.getByText('会员与使用权益').click();
+  await expect(page.getByText('人体建模：¥23.45 / 次', { exact: true })).toBeVisible();
   await expect(page.getByText('个性化推荐年会员：¥45.67 / 12 个月')).toBeVisible();
   expect(writes.find((item) => item.path === '/api/auth/register')?.body.role).toBe('customer');
   await page.reload();
@@ -125,7 +127,7 @@ test('account overview uses live pricing and keeps the reference layout usable o
   await expect(page.getByRole('heading', { name: '账户概览', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: '当前余额', exact: true })).toContainText('¥87.65');
   await expect(page.getByRole('region', { name: '会员状态', exact: true })).toContainText('未开通');
-  await expect(page.getByRole('region', { name: '调用价格', exact: true })).toContainText('¥23.45 / 次');
+  await expect(page.getByRole('region', { name: '调用价格', exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '我的订单', exact: true })).toContainText('暂无订单');
   await expect(page.getByRole('region', { name: '最近资金流水', exact: true })).toContainText('暂无交易');
   await expect(page.getByRole('button', { name: '创建充值订单' })).toBeDisabled();
