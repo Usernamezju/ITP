@@ -130,6 +130,17 @@ const configuredPayments = {
   ],
 };
 
+const productAi = {
+  settings: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    model: 'qwen-vl-max', key_set: false, key_from_pose: true, ready: true },
+};
+/** The answer to a saved configuration: the model the operator asked for. */
+const savedProductAi = {
+  settings: { endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+    model: 'doubao-seed-2-1-lite-260915', key_set: true, key_from_pose: false, ready: true },
+  check: { ok: true, message: 'doubao-seed-2-1-lite-260915 已返回：正常' },
+};
+
 type Options = {
   /** Sign in before the page loads; false exercises the console's own login form. */
   startSignedIn?: boolean;
@@ -140,6 +151,8 @@ type Options = {
   unauthorized?: boolean;
   /** Answers the payment-config POST; the payload is asserted by the test. */
   paymentConfig?: (payload: unknown) => unknown;
+  /** Answers the AI-config POST; the payload is asserted by the test. */
+  productAiConfig?: (payload: unknown) => unknown;
 };
 
 /** `/admin` with the platform's admin endpoints mocked, like the other specs. */
@@ -150,7 +163,7 @@ async function openAdmin(page: Page, options: Options = {}) {
     '/api/admin/status': status, '/api/admin/settings': settings,
     '/api/admin/accounts': accounts, '/api/admin/usage': usage,
     '/api/admin/orders': orders, '/api/admin/jobs': jobs,
-    '/api/admin/payments': payments,
+    '/api/admin/payments': payments, '/api/admin/product-ai': productAi,
   };
   let token = startSignedIn ? 'admin-token' : '';
   if (startSignedIn) {
@@ -158,7 +171,10 @@ async function openAdmin(page: Page, options: Options = {}) {
   }
   await page.route('**/*', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/admin/payments/config' && options.paymentConfig) {
+    if (path === '/api/admin/product-ai/config' && options.productAiConfig) {
+      calls.push(path);
+      await route.fulfill({ json: options.productAiConfig(route.request().postDataJSON()) });
+    } else if (path === '/api/admin/payments/config' && options.paymentConfig) {
       calls.push(path);
       await route.fulfill({ json: options.paymentConfig(route.request().postDataJSON()) });
     } else if (path.startsWith('/api/admin/')) {
@@ -320,4 +336,43 @@ test('a wrong channel answer keeps the configuration and explains the next step'
   await expect(panel.getByRole('status')).toContainText('配置已保存到服务器');
   await expect(panel.locator('.admin-check.bad').first())
     .toContainText('渠道校验未通过：支付签名校验失败');
+});
+
+test('the operator switches the vision model from the console', async ({ page }) => {
+  const sent: Record<string, unknown>[] = [];
+  await openAdmin(page, { productAiConfig: (payload) => {
+    sent.push(payload as Record<string, unknown>); return savedProductAi; } });
+
+  const panel = section(page, 'AI 识图配置');
+  const current = panel.locator('.admin-payment-channel strong');
+  await expect(current).toHaveText('qwen-vl-max');
+  await expect(panel.locator('.admin-payment-channel small').first())
+    .toHaveText('沿用姿势编辑的密钥');
+
+  await panel.getByLabel('视觉模型接口地址')
+    .fill('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+  await panel.getByLabel('模型名').fill('doubao-seed-2-1-lite-260915');
+  await panel.getByLabel('API Key（选填）').fill('ark-secret-value');
+  await panel.getByRole('button', { name: '保存并校验' }).click();
+
+  // Only the fields the operator touched travel, and the key never comes back.
+  expect(sent).toEqual([{
+    product_ai_endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+    product_ai_model: 'doubao-seed-2-1-lite-260915',
+    product_ai_api_key: 'ark-secret-value',
+  }]);
+  await expect(panel.getByRole('status')).toContainText('自检通过');
+  await expect(panel.locator('.admin-check.ok')).toContainText('已返回');
+  await expect(page.getByText('ark-secret-value')).toHaveCount(0);
+  await expect(current).toHaveText('doubao-seed-2-1-lite-260915');
+});
+
+test('a provider that refuses the credentials says so and keeps the settings', async ({ page }) => {
+  await openAdmin(page, { productAiConfig: () => ({ ...savedProductAi,
+    check: { ok: false, message: '图片识别服务暂时不可用，请稍后重试' } }) });
+  const panel = section(page, 'AI 识图配置');
+  await panel.getByLabel('模型名').fill('doubao-seed-2-1-lite-260915');
+  await panel.getByRole('button', { name: '保存并校验' }).click();
+  await expect(panel.getByRole('status')).toContainText('自检未通过');
+  await expect(panel.locator('.admin-check.bad')).toContainText('稍后重试');
 });

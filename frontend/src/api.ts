@@ -142,6 +142,14 @@ export type AdminPaymentUpdate = Partial<Record<
   | 'wechat_app_id' | 'wechat_mch_id' | 'wechat_merchant_serial' | 'wechat_private_key'
   | 'wechat_api_v3_key' | 'wechat_platform_key_id' | 'wechat_platform_public_key'
   | 'wechat_platform_key_remove', string>>;
+export type AdminProductAiDocument = {
+  settings: { endpoint: string; model: string; key_set: boolean;
+    key_from_pose: boolean; ready: boolean };
+  check?: { ok: boolean; message: string };
+};
+/** Only the fields the operator is changing; an empty string clears a value. */
+export type AdminProductAiUpdate = Partial<Record<
+  'product_ai_endpoint' | 'product_ai_model' | 'product_ai_api_key', string>>;
 export type AdminAccount = {
   id: string; name: string; display_name: string; contact: string;
   role: 'customer' | 'merchant' | 'admin'; created: number;

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Activity, AlertCircle, Database, KeyRound, LoaderCircle, LogOut, Package,
-  RefreshCw, ShieldCheck, Users, Wallet,
+  RefreshCw, ShieldCheck, Sparkles, Users, Wallet,
 } from 'lucide-react';
 import {
   ApiError, type AdminAccount, type AdminJobs, type AdminOrder, type AdminPaymentDocument,
-  type AdminPaymentUpdate, type AdminProviderSettings, type AdminStatus, type AdminUsage,
+  type AdminPaymentUpdate, type AdminProductAiDocument, type AdminProductAiUpdate,
+  type AdminProviderSettings, type AdminStatus, type AdminUsage,
 } from './api';
 import { accountApi, logoutAccount, useAccountSession, type Account } from './accountApi';
 import { stageLabels } from './jobView';
@@ -219,6 +220,10 @@ function AdminDashboard({ account, onSignOut }: { account: Account; onSignOut: (
       <section className="admin-section wide">
         <h2 className="admin-section-title"><Wallet size={15} />支付配置（可写）</h2>
         <PaymentConfigSection onSaved={() => void load()} />
+      </section>
+      <section className="admin-section wide">
+        <h2 className="admin-section-title"><Sparkles size={15} />AI 识图配置（可写）</h2>
+        <ProductAiSection onSaved={() => void load()} />
       </section>
     </div>}
   </main>;
@@ -515,10 +520,10 @@ function PaymentConfigSection({ onSaved }: { onSaved: () => void }) {
     {groups.map((group) => <section className="settings-section" key={group.id}>
       <div className="settings-section-title"><span>{group.id === 'alipay' ? '01' : '02'}</span>
         <div><h3>{group.title}</h3><p>{group.hint}</p></div></div>
-      <div className="admin-payment-fields">{group.fields.map((field) => {
+      <div className="admin-config-fields">{group.fields.map((field) => {
         const value = fields[field.key] ?? '';
         return <label key={field.key} className={field.area ? 'wide' : ''}>
-          <span className="admin-payment-label">{field.label}
+          <span className="admin-config-label">{field.label}
             <i className={field.configured ? 'admin-pill ready' : 'admin-pill'}>
               {field.configured ? '已配置' : '未配置'}</i></span>
           {field.area
@@ -542,12 +547,110 @@ function PaymentConfigSection({ onSaved }: { onSaved: () => void }) {
     </section>)}
     {error && <p role="alert" className="admin-error"><AlertCircle size={14} />{error}</p>}
     {notice && <p role="status" className="admin-notice">{notice}</p>}
-    <div className="admin-payment-actions">
+    <div className="admin-config-actions">
       <button type="submit" className="button" disabled={busy || Object.keys(fields).length === 0}>
         {busy ? <LoaderCircle size={14} className="spin" /> : <KeyRound size={14} />}
         {busy ? '正在保存并校验…' : '保存并校验'}
       </button>
       <small>只保存本次填写过的字段；把某个字段内容清空再保存即可清除该值。</small>
+    </div>
+  </form>;
+}
+
+/**
+ * The second writable section: which model reads product pictures.  The
+ * operator switches provider or model here, the server stores it in its own
+ * settings file and proves the credentials with one tiny vision call.
+ */
+function ProductAiSection({ onSaved }: { onSaved: () => void }) {
+  const [document, setDocument] = useState<AdminProductAiDocument | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [fields, setFields] = useState<AdminProductAiUpdate>({});
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoadError('');
+    try {
+      setDocument(await accountApi<AdminProductAiDocument>('/api/admin/product-ai'));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) sessionToken.write('');
+      setLoadError(err instanceof Error ? err.message : '读取失败');
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await accountApi<AdminProductAiDocument>(
+        '/api/admin/product-ai/config', 'POST', fields);
+      setDocument(result);
+      setFields({});
+      setNotice(result.check?.ok
+        ? `配置已保存，自检通过：${result.check.message}`
+        : `配置已保存到服务器；自检未通过：${result.check?.message || '未知原因'}`);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loadError) {
+    return <p role="alert" className="admin-error"><AlertCircle size={14} />
+      AI 配置读取失败：{loadError}</p>;
+  }
+  if (!document) return <p className="muted" role="status">正在读取 AI 配置…</p>;
+  const rows: { key: keyof AdminProductAiUpdate; label: string; hint: string;
+    value: string; password?: boolean }[] = [
+    { key: 'product_ai_endpoint', label: '视觉模型接口地址',
+      hint: 'OpenAI 兼容的 chat/completions 地址，例如 https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      value: document.settings.endpoint },
+    { key: 'product_ai_model', label: '模型名',
+      hint: '例如 doubao-seed-2-1-lite-260915 / qwen-vl-max / gpt-4o',
+      value: document.settings.model },
+    { key: 'product_ai_api_key', label: 'API Key（选填）',
+      hint: '留空则沿用姿势编辑的密钥；填写后立即生效，不会回显',
+      value: '', password: true },
+  ];
+  return <form className="admin-payment" onSubmit={(event) => void submit(event)}>
+    <p className="admin-note">商家粘贴商品链接时用它读图。密钥只写入服务器配置文件（权限 600），
+      接口只回传是否已配置；保存后立即生效，并用一张 32×32 的测试图向该模型发起一次真实自检。</p>
+    <div className="admin-payment-status">
+      <div className="admin-payment-channel">
+        <b className={document.settings.ready ? 'admin-pill ready' : 'admin-pill'}>
+          {document.settings.ready ? '可用' : '未就绪'}</b>
+        <div><strong>{document.settings.model || '未填写模型'}</strong>
+          <small>{document.settings.key_set ? '已使用单独的 API Key'
+            : document.settings.key_from_pose ? '沿用姿势编辑的密钥'
+            : '尚未配置密钥'}</small>
+          {document.settings.endpoint && <small>{document.settings.endpoint}</small>}
+          {document.check && <small className={document.check.ok ? 'admin-check ok' : 'admin-check bad'}>
+            {document.check.ok ? '✓ ' : '× '}{document.check.message}</small>}</div>
+      </div>
+    </div>
+    <div className="admin-config-fields">{rows.map((row) => <label key={row.key}
+      className={row.key === 'product_ai_endpoint' ? 'wide' : ''}>
+      <span className="admin-config-label">{row.label}</span>
+      <input type={row.password ? 'password' : 'text'} spellCheck={false} autoComplete="off"
+        placeholder={row.value || row.hint} aria-label={row.label}
+        value={fields[row.key] ?? ''}
+        onChange={(event) => setFields({ ...fields, [row.key]: event.target.value })} />
+      <small>{row.hint}</small>
+    </label>)}</div>
+    {error && <p role="alert" className="admin-error"><AlertCircle size={14} />{error}</p>}
+    {notice && <p role="status" className="admin-notice">{notice}</p>}
+    <div className="admin-config-actions">
+      <button type="submit" className="button" disabled={busy || Object.keys(fields).length === 0}>
+        {busy ? <LoaderCircle size={14} className="spin" /> : <Sparkles size={14} />}
+        {busy ? '正在保存并自检…' : '保存并校验'}
+      </button>
+      <small>只保存本次填写过的字段；把字段清空再保存即可清除该值（密钥清空后回落到姿势编辑的密钥）。</small>
     </div>
   </form>;
 }

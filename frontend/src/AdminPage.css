@@ -58,7 +58,7 @@
 @media(max-width:860px){.admin-grid{grid-template-columns:1fr}.admin-main{padding:20px 16px 40px}}
 @media(max-width:760px){.admin-topbar{padding:11px 15px}.admin-heading h1{font-size:19px}.admin-card{padding:20px}}
 
-/* The one writable console section: operator-managed payment credentials. */
+/* The writable console sections: payment credentials and the vision model. */
 .admin-payment { display: grid; gap: 14px; }
 .admin-payment .admin-note { margin-bottom: 0; font-size: 12px; }
 .admin-payment .admin-note code { font-size: 12px; overflow-wrap: anywhere; }
@@ -68,17 +68,17 @@
 .admin-payment-channel small { display: block; margin-top: 3px; font-size: 12px; line-height: 1.6; color: var(--theme-muted); }
 .admin-check.ok { color: #137333; }
 .admin-check.bad { color: var(--commerce-danger, #e1251b); }
-.admin-payment-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 14px 17px 16px; }
-.admin-payment-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
-.admin-payment-fields label.wide { grid-column: 1 / -1; }
-.admin-payment-label { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--theme-text); }
-.admin-payment-fields input, .admin-payment-fields textarea { width: 100%; padding: 8px 10px; font: inherit; font-size: 13px; color: var(--theme-text); background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; }
-.admin-payment-fields textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; resize: vertical; }
-.admin-payment-fields input:focus-visible, .admin-payment-fields textarea:focus-visible { outline: 2px solid var(--commerce-action, #d94200); outline-offset: 2px; }
-.admin-payment-fields small { font-size: 12px; color: var(--theme-muted); }
+.admin-config-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 14px 17px 16px; }
+.admin-config-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
+.admin-config-fields label.wide { grid-column: 1 / -1; }
+.admin-config-label { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--theme-text); }
+.admin-config-fields input, .admin-config-fields textarea { width: 100%; padding: 8px 10px; font: inherit; font-size: 13px; color: var(--theme-text); background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; }
+.admin-config-fields textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; resize: vertical; }
+.admin-config-fields input:focus-visible, .admin-config-fields textarea:focus-visible { outline: 2px solid var(--commerce-action, #d94200); outline-offset: 2px; }
+.admin-config-fields small { font-size: 12px; color: var(--theme-muted); }
 .admin-payment-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 17px 16px; font-size: 12px; color: var(--theme-muted); }
 .admin-payment-key { display: inline-flex; align-items: center; gap: 6px; }
 .admin-payment-key code { font-size: 12px; }
-.admin-payment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.admin-payment-actions small { font-size: 12px; color: var(--theme-muted); }
+.admin-config-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.admin-config-actions small { font-size: 12px; color: var(--theme-muted); }
 .admin-notice { font-size: 12px; line-height: 1.7; color: #137333; }

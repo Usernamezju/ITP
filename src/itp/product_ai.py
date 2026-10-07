@@ -266,6 +266,13 @@ def _json_object(answer) -> dict:
     return document
 
 
+def _probe_image() -> bytes:
+    """A tiny opaque square: enough for the model to answer, cheap to send."""
+    stream = io.BytesIO()
+    Image.new("RGB", (32, 32), (255, 255, 255)).save(stream, format="JPEG", quality=70)
+    return stream.getvalue()
+
+
 class ProductDescriber:
     """The configured vision model, called with the operator's server-side key."""
 
@@ -278,6 +285,21 @@ class ProductDescriber:
 
     def describe(self, image: bytes) -> dict:
         """Ask the model about one already-downscaled JPEG."""
+        return normalize(_json_object(self._complete(image, PROMPT, DESCRIBE_MAX_TOKENS)))
+
+    def probe(self) -> dict:
+        """One tiny call that proves endpoint, model and key work together."""
+        if not self.ready():
+            return {"ok": False, "message": "尚未配置完整的接口地址、模型与密钥"}
+        try:
+            answer = self._complete(_probe_image(), "只回复两个字：正常", 16)
+        except ProductAiError as exc:
+            return {"ok": False, "message": str(exc)}
+        reply = answer.strip()[:20]
+        return {"ok": True, "message": f"{self.settings.product_ai_model} 已返回：{reply}"}
+
+    def _complete(self, image: bytes, prompt: str, max_tokens: int) -> str:
+        """Send one image question and return the model's text answer."""
         if not self.ready():
             raise ProductAiError("平台尚未配置图片识别模型，请联系运维")
         payload = {
@@ -288,11 +310,11 @@ class ProductDescriber:
                     "content": [
                         {"type": "image_url", "image_url": {
                             "url": "data:image/jpeg;base64," + base64.b64encode(image).decode()}},
-                        {"type": "text", "text": PROMPT},
+                        {"type": "text", "text": prompt},
                     ],
                 }
             ],
-            "max_tokens": DESCRIBE_MAX_TOKENS,
+            "max_tokens": max_tokens,
             "temperature": 0.2,
             # Gateways such as HaiJing stream by default; ask for the whole
             # answer so one code path reads every provider's reply.
@@ -315,4 +337,6 @@ class ProductDescriber:
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
             logger.warning("Product AI call failed: %s", type(exc).__name__)
             raise ProductAiError("图片识别服务暂时不可用，请稍后重试") from exc
-        return normalize(_json_object(answer))
+        if not isinstance(answer, str):
+            raise ProductAiError("AI 返回的内容无法识别")
+        return answer

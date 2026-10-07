@@ -94,6 +94,12 @@ from itp.provider_settings import (
 )
 from itp.private_jobs import PrivateFaceStore, PrivateTryOnStore
 from itp.product_ai import ProductAiError, ProductDescriber, fetch_product_image, preview_jpeg
+from itp.product_settings import (
+    ProductSettingsUpdate,
+    public_product_settings,
+    save_product_settings,
+    validate_product_update,
+)
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
 from itp.tryon import TryOnRequest, TryOnWorker
@@ -341,6 +347,7 @@ def create_app(
     auth_limiter = AuthLimiter()
     avatar_limiter = AuthLimiter()
     product_limiter = AuthLimiter()
+    product_config_limiter = AuthLimiter()
     janitor_stop = threading.Event()
 
     def janitor():
@@ -408,6 +415,7 @@ def create_app(
     app.state.config_path = config_path
     app.state.settings = settings
     app.state.payments = PaymentService(merchants, settings, transport=payment_transport)
+    app.state.product_ai = product_ai
     app.include_router(payment_router(app.state.payments))
     from itp.product_clicks import click_router
     app.include_router(click_router(merchants))
@@ -653,6 +661,39 @@ def create_app(
     # from the operator's Alipay/WeChat accounts.  Values are written to the
     # server settings file and are never echoed back, logged or committed.
     payment_config_limiter = AuthLimiter()
+
+    @app.get("/api/admin/product-ai", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_product_ai():
+        return {"settings": public_product_settings(app.state.settings)}
+
+    @app.post("/api/admin/product-ai/config", include_in_schema=False)
+    def update_admin_product_ai(body: ProductSettingsUpdate,
+                                admin: dict = Depends(current_admin)):
+        """Point the product-image reader at another endpoint, model or key."""
+        product_config_limiter.check(("product-ai-config", admin["id"]), attempts=10, seconds=60)
+        with settings_lock:
+            try:
+                updated, changes = validate_product_update(app.state.settings, body)
+            except (ValueError, ValidationError) as exc:
+                raise HTTPException(422, str(exc) or "AI 配置无效") from exc
+            if not changes:
+                raise HTTPException(422, "没有需要保存的改动")
+            if any(f"ITP_{field.upper()}" in os.environ for field in changes):
+                raise HTTPException(409, "该配置已由进程环境变量指定，请在启动环境中修改")
+            try:
+                save_product_settings(config_path, changes)
+            except OSError as exc:
+                raise HTTPException(500, "无法保存 AI 配置，请检查服务器文件权限") from exc
+            app.state.settings = updated
+            # Field names only: values never reach a log line.
+            logger.info("Admin %s updated product AI settings: %s",
+                        admin["name"], sorted(changes))
+            product_ai.settings = updated
+        document = {"settings": public_product_settings(app.state.settings)}
+        # Prove the new credentials against the provider, outside the lock.
+        document["check"] = product_ai.probe()
+        return document
 
     def admin_payment_document() -> dict:
         return {
