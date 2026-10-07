@@ -238,3 +238,72 @@ def test_unsigned_or_badly_signed_query_response_is_rejected(tmp_path, keys, pro
     engine = cls(settings_for(tmp_path, keys), transport=transport)
     with pytest.raises(PaymentError):
         engine.query({"id": "test-order"})
+
+
+def test_alipay_credential_probe_accepts_trade_not_exist_and_rejects_answers(tmp_path, keys):
+    """A signed ACQ.TRADE_NOT_EXIST proves app id, private key and public key."""
+    seen = []
+
+    def transport(request):
+        values = dict(parse_qsl(request.content.decode()))
+        rsa_verify(keys[0].public_key(), values["sign"], AlipayProvider.canonical(values))
+        business = json.loads(values["biz_content"])
+        seen.append(business["out_trade_no"])
+        assert business["out_trade_no"].startswith("itp-credential-probe-")
+        if len(seen) == 1:
+            payload = {"code": "40004", "msg": "Business Failed",
+                       "sub_code": "ACQ.TRADE_NOT_EXIST", "sub_msg": "交易不存在"}
+        else:  # A probe must never come back as a real payment.
+            payload = {"code": "10000", "out_trade_no": business["out_trade_no"],
+                       "trade_no": "official-tx", "trade_status": "TRADE_SUCCESS",
+                       "total_amount": "1.00"}
+        raw = json.dumps(payload, ensure_ascii=False)
+        body = ('{"alipay_trade_query_response":' + raw + ',"sign":'
+                + json.dumps(rsa_sign(keys[1], raw.encode())) + "}")
+        return httpx.Response(200, content=body.encode())
+
+    provider = AlipayProvider(
+        settings_for(tmp_path, keys), transport=httpx.MockTransport(transport)
+    )
+    provider.verify_credentials()
+    with pytest.raises(PaymentError):
+        provider.verify_credentials()
+    assert len(seen) == 2 and seen[0] != seen[1]
+
+    unsigned = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"alipay_trade_query_response": {}})
+    )
+    with pytest.raises(PaymentError):
+        AlipayProvider(settings_for(tmp_path, keys), transport=unsigned).verify_credentials()
+
+
+def test_wechat_credential_probe_accepts_signed_404_and_rejects_rejections(tmp_path, keys):
+    def transport(request):
+        assert request.method == "GET" and "out-trade-no/itp-credential-probe-" in str(request.url)
+        assert "mchid=test-merchant" in str(request.url)
+        raw = json.dumps({"code": "ORDER_NOT_EXIST", "message": "订单不存在"}).encode()
+        return httpx.Response(404, content=raw, headers=wechat_headers(raw, keys[1]))
+
+    provider = WechatProvider(
+        settings_for(tmp_path, keys), transport=httpx.MockTransport(transport)
+    )
+    provider.verify_credentials()
+
+    def rejected(request):
+        # WeChat answers a rejected signature with 401, still signed by the platform.
+        raw = json.dumps({"code": "SIGN_ERROR", "message": "签名错误"}).encode()
+        return httpx.Response(401, content=raw, headers=wechat_headers(raw, keys[1]))
+
+    with pytest.raises(PaymentError):
+        WechatProvider(
+            settings_for(tmp_path, keys), transport=httpx.MockTransport(rejected)
+        ).verify_credentials()
+
+
+def test_wechat_credential_probe_rejects_an_unsigned_answer(tmp_path, keys):
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(404, json={"code": "ORDER_NOT_EXIST"})
+    )
+    provider = WechatProvider(settings_for(tmp_path, keys), transport=transport)
+    with pytest.raises(PaymentError):
+        provider.verify_credentials()

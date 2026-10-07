@@ -89,6 +89,47 @@ function section(page: Page, title: string) {
   return page.locator('.admin-section', { has: page.getByRole('heading', { name: title }) });
 }
 
+const paymentCallbacks = {
+  alipay: 'https://pay.example.org/api/payments/callbacks/alipay',
+  wechat: 'https://pay.example.org/api/payments/callbacks/wechat',
+};
+/** Nothing configured yet: the console must offer the form and say why. */
+const payments = {
+  settings: {
+    alipay: { app_id_set: false, seller_id_set: false, private_key_set: false, public_key_set: false },
+    wechat: { app_id_set: false, mch_id_set: false, merchant_serial_set: false,
+      private_key_set: false, api_v3_key_set: false, platform_key_ids: [] },
+  },
+  status: {
+    notify_origin: 'https://pay.example.org',
+    channels: [
+      { id: 'alipay', ready: false, reason: '尚未填写商户参数' },
+      { id: 'wechat', ready: false, reason: '尚未填写商户参数' },
+    ],
+    callbacks: paymentCallbacks,
+  },
+};
+/** The answer to a saved configuration: only readiness and the probe result. */
+const configuredPayments = {
+  settings: {
+    alipay: { app_id_set: true, seller_id_set: false, private_key_set: true, public_key_set: false },
+    wechat: { app_id_set: false, mch_id_set: false, merchant_serial_set: false,
+      private_key_set: false, api_v3_key_set: false, platform_key_ids: [] },
+  },
+  status: {
+    notify_origin: 'https://pay.example.org',
+    channels: [
+      { id: 'alipay', ready: true, reason: '' },
+      { id: 'wechat', ready: false, reason: '尚未填写商户参数' },
+    ],
+    callbacks: paymentCallbacks,
+  },
+  checks: [
+    { channel: 'alipay', ok: true, message: '凭据已通过官方接口校验' },
+    { channel: 'wechat', ok: false, message: '尚未填写商户参数' },
+  ],
+};
+
 type Options = {
   /** Sign in before the page loads; false exercises the console's own login form. */
   startSignedIn?: boolean;
@@ -97,6 +138,8 @@ type Options = {
   fail?: string[];
   /** Every admin endpoint answers 401, as an expired admin session would. */
   unauthorized?: boolean;
+  /** Answers the payment-config POST; the payload is asserted by the test. */
+  paymentConfig?: (payload: unknown) => unknown;
 };
 
 /** `/admin` with the platform's admin endpoints mocked, like the other specs. */
@@ -107,6 +150,7 @@ async function openAdmin(page: Page, options: Options = {}) {
     '/api/admin/status': status, '/api/admin/settings': settings,
     '/api/admin/accounts': accounts, '/api/admin/usage': usage,
     '/api/admin/orders': orders, '/api/admin/jobs': jobs,
+    '/api/admin/payments': payments,
   };
   let token = startSignedIn ? 'admin-token' : '';
   if (startSignedIn) {
@@ -114,7 +158,10 @@ async function openAdmin(page: Page, options: Options = {}) {
   }
   await page.route('**/*', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.startsWith('/api/admin/')) {
+    if (path === '/api/admin/payments/config' && options.paymentConfig) {
+      calls.push(path);
+      await route.fulfill({ json: options.paymentConfig(route.request().postDataJSON()) });
+    } else if (path.startsWith('/api/admin/')) {
       calls.push(path);
       if (unauthorized) await route.fulfill({ status: 401, json: { detail: '登录状态已失效' } });
       else if (fail.includes(path)) await route.fulfill({ status: 500, json: { detail: '内部错误' } });
@@ -229,4 +276,48 @@ test('one failing endpoint leaves the other sections readable', async ({ page })
   await expect(page.getByRole('heading', { name: '运行状态' })).toBeVisible();
   await expect(page.getByText('0.1.0')).toBeVisible();
   await expect(section(page, '订单与支付').getByRole('cell', { name: '已支付' })).toBeVisible();
+});
+
+test('an admin configures the real payment channels without echoing a secret', async ({ page }) => {
+  const sent: Record<string, unknown>[] = [];
+  // A PEM the console must never render back after saving.
+  const privateKey = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----';
+  await openAdmin(page, {
+    paymentConfig: (payload) => { sent.push(payload as Record<string, unknown>); return configuredPayments; },
+  });
+
+  const panel = section(page, '支付配置');
+  await expect(panel.getByText('只写入服务器配置文件')).toBeVisible();
+  await expect(panel.getByText('尚未填写商户参数').first()).toBeVisible();
+  // The operator sees the exact callback addresses to register with each platform.
+  await expect(panel.getByText(paymentCallbacks.wechat)).toBeVisible();
+
+  // Only the touched fields are sent: everything else keeps its stored value.
+  await panel.getByLabel('APP_ID').first().fill('2021000000000000');
+  await panel.getByLabel('应用私钥').fill(privateKey);
+  await panel.getByRole('button', { name: '保存并校验' }).click();
+
+  await expect(panel.getByText('配置已保存到服务器')).toBeVisible();
+  await expect(panel.locator('.admin-check.ok')).toContainText('凭据已通过官方接口校验');
+  expect(sent).toEqual([{ alipay_app_id: '2021000000000000', alipay_private_key: privateKey }]);
+
+  // The server answered with readiness only, and the page shows exactly that.
+  await expect(panel.getByText('可用')).toBeVisible();
+  await expect(page.getByText('MIIEvQIBADANBgkqhkiG9w0BAQEFAASC')).toHaveCount(0);
+  await expect(panel.locator('input[value*="BEGIN PRIVATE KEY"]')).toHaveCount(0);
+});
+
+test('a wrong channel answer keeps the configuration and explains the next step', async ({ page }) => {
+  await openAdmin(page, {
+    paymentConfig: () => ({ ...configuredPayments, checks: [
+      { channel: 'alipay', ok: false, message: '渠道校验未通过：支付签名校验失败' },
+      { channel: 'wechat', ok: false, message: '尚未填写商户参数' },
+    ] }),
+  });
+  const panel = section(page, '支付配置');
+  await panel.getByLabel('APP_ID').first().fill('2021000000000000');
+  await panel.getByRole('button', { name: '保存并校验' }).click();
+  await expect(panel.getByRole('status')).toContainText('配置已保存到服务器');
+  await expect(panel.locator('.admin-check.bad').first())
+    .toContainText('渠道校验未通过：支付签名校验失败');
 });

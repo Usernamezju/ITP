@@ -121,6 +121,26 @@ export type AdminProviderSettings = {
   faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
   image_provider: string; unsplash_access_key_set: boolean; pixabay_api_key_set: boolean;
 };
+export type AdminPaymentChannel = { id: string; ready: boolean; reason: string };
+export type AdminPaymentDocument = {
+  settings: {
+    alipay: { app_id_set: boolean; seller_id_set: boolean;
+      private_key_set: boolean; public_key_set: boolean };
+    wechat: { app_id_set: boolean; mch_id_set: boolean; merchant_serial_set: boolean;
+      private_key_set: boolean; api_v3_key_set: boolean; platform_key_ids: string[] };
+  };
+  status: {
+    notify_origin: string; channels: AdminPaymentChannel[];
+    callbacks: { alipay: string; wechat: string };
+  };
+  checks?: { channel: string; ok: boolean; message: string }[];
+};
+/** Only the fields the operator is changing; an empty string clears a value. */
+export type AdminPaymentUpdate = Partial<Record<
+  'alipay_app_id' | 'alipay_seller_id' | 'alipay_private_key' | 'alipay_public_key'
+  | 'wechat_app_id' | 'wechat_mch_id' | 'wechat_merchant_serial' | 'wechat_private_key'
+  | 'wechat_api_v3_key' | 'wechat_platform_key_id' | 'wechat_platform_public_key'
+  | 'wechat_platform_key_remove', string>>;
 export type AdminAccount = {
   id: string; name: string; display_name: string; contact: string;
   role: 'customer' | 'merchant' | 'admin'; created: number;

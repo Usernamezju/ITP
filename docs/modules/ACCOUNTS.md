@@ -52,7 +52,7 @@ role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。
 | GET | `/api/account/me` | Bearer；个人资料，不含哈希与平台凭据 |
 | PATCH | `/api/account/me` | Bearer；仅 display_name/contact 部分更新，拒绝 null |
 | POST | `/api/account/password` | Bearer；current_password/new_password，成功后重新登录 |
-| GET | `/api/admin/status` 等 | Bearer + admin 角色；只读管理后台数据，见 [Web 工作台](WEB.md) |
+| GET | `/api/admin/status` 等 | Bearer + admin 角色；只读管理后台数据，唯一的写接口是支付配置 `POST /api/admin/payments/config`，见 [Web 工作台](WEB.md) |
 
 旧 `/api/merchant/register`、`login` 和 `password` 委托同一实现，兼容旧调用方；
 商家登录和所有商家业务接口必须是 merchant 角色。普通顾客请求商家接口得到

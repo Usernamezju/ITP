@@ -1,9 +1,9 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
-import tempfile
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -70,12 +70,19 @@ from itp.outfit_service import recommend as recommend_outfits
 from itp.pipeline import Pipeline
 from itp.payment_service import PaymentService
 from itp.payment_routes import payment_router
+from itp.payment_settings import (
+    PaymentSettingsUpdate,
+    public_payment_settings,
+    save_payment_settings,
+    validate_payment_update,
+)
 from itp.preprocessing import MAX_UPLOAD, Segmenter, image_base64, prepare_image
 from itp.provider_settings import (
     ProviderSettingsUpdate,
     public_provider_settings,
     save_provider_settings,
     validate_provider_update,
+    write_env_values,
 )
 from itp.private_jobs import PrivateFaceStore, PrivateTryOnStore
 from itp.schemas import JobRequest
@@ -83,6 +90,8 @@ from itp.storage import Store, public_asset, public_job
 from itp.tryon import TryOnRequest, TryOnWorker
 from itp.transient import TransientStore
 from itp.wardrobe import CATALOG, DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, POSE_LABELS
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewRequest(BaseModel):
@@ -238,7 +247,6 @@ async def read_garment_images(images: list[UploadFile]) -> list:
 # and is owned by another branch of this feature, so the three image fields are
 # declared on a subclass here instead of extending that model.
 IMAGE_SETTING_FIELDS = ("image_provider", "unsplash_access_key", "pixabay_api_key")
-_ENV_KEY = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z0-9_]+)\s*=")
 
 
 class ImageSettingsUpdate(ProviderSettingsUpdate):
@@ -281,40 +289,10 @@ def public_settings(settings: Settings) -> dict:
 def save_image_settings(path: Path, changes: dict) -> None:
     """Write the outfit photo keys into ``.env`` beside the other settings.
 
-    ``save_provider_settings`` rewrites only the fields in its own editable
-    list, which these keys are deliberately not part of, so this repeats its
-    safe rewrite: drop the old lines for exactly these keys, append the new
-    ones, then replace the file atomically with owner-only permissions.
+    Uses the same audited atomic rewrite as the other settings sections, with
+    its own field whitelist.
     """
-    if not changes:
-        return
-    if path.is_symlink():
-        raise OSError("Refusing to replace a symlinked settings file")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    original = path.read_text(encoding="utf-8") if path.exists() else ""
-    keys = {f"ITP_{field.upper()}" for field in changes}
-    lines = [
-        line
-        for line in original.splitlines(keepends=True)
-        if not (match := _ENV_KEY.match(line)) or match.group(1) not in keys
-    ]
-    content = "".join(lines)
-    if content and not content.endswith("\n"):
-        content += "\n"
-    for field in IMAGE_SETTING_FIELDS:
-        if field in changes:
-            content += f"ITP_{field.upper()}={json.dumps(changes[field], ensure_ascii=False)}\n"
-    fd, temporary = tempfile.mkstemp(prefix=".env.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    write_env_values(path, IMAGE_SETTING_FIELDS, changes)
 
 
 def create_app(
@@ -323,6 +301,7 @@ def create_app(
     start_worker: bool = True,
     config_path: Path = Path(".env"),
     frontend_dir: Path | None = None,
+    payment_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     store = TransientStore(settings.data_dir)
@@ -404,7 +383,7 @@ def create_app(
     app.state.commerce = merchants.commerce
     app.state.config_path = config_path
     app.state.settings = settings
-    app.state.payments = PaymentService(merchants, settings)
+    app.state.payments = PaymentService(merchants, settings, transport=payment_transport)
     app.include_router(payment_router(app.state.payments))
     from itp.product_clicks import click_router
     app.include_router(click_router(merchants))
@@ -642,6 +621,51 @@ def create_app(
     def admin_settings():
         # Secrets never leave as values: public_settings reports *_set booleans.
         return public_settings(app.state.settings)
+
+    # The console stays read-only for model credentials; payment credentials are
+    # the one operator-writable section, because the merchant keys can only come
+    # from the operator's Alipay/WeChat accounts.  Values are written to the
+    # server settings file and are never echoed back, logged or committed.
+    payment_config_limiter = AuthLimiter()
+
+    def admin_payment_document() -> dict:
+        return {
+            "settings": public_payment_settings(app.state.settings),
+            "status": app.state.payments.status(),
+        }
+
+    @app.get("/api/admin/payments", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_payments():
+        return admin_payment_document()
+
+    @app.post("/api/admin/payments/config", include_in_schema=False)
+    def update_admin_payments(body: PaymentSettingsUpdate, admin: dict = Depends(current_admin)):
+        payment_config_limiter.check(("payment-config", admin["id"]), attempts=10, seconds=60)
+        with settings_lock:
+            try:
+                updated, changes = validate_payment_update(app.state.settings, body)
+            except (ValueError, ValidationError) as exc:
+                raise HTTPException(422, str(exc) or "支付配置无效") from exc
+            if not changes:
+                raise HTTPException(422, "没有需要保存的改动")
+            if any(f"ITP_{field.upper()}" in os.environ for field in changes):
+                raise HTTPException(409, "该配置已由进程环境变量指定，请在启动环境中修改")
+            try:
+                save_payment_settings(config_path, changes)
+            except OSError as exc:
+                raise HTTPException(500, "无法保存支付配置，请检查服务器文件权限") from exc
+            app.state.settings = updated
+            # Field names only: values never reach a log line.
+            logger.info(
+                "Admin %s updated payment credentials: %s", admin["name"], sorted(changes)
+            )
+            app.state.payments.reload(updated)
+        document = admin_payment_document()
+        # Probing calls the official gateway, so it happens after the new
+        # credentials are live and never inside the settings lock.
+        document["checks"] = app.state.payments.probe_all()
+        return document
 
     @app.get("/api/admin/accounts", include_in_schema=False,
              dependencies=[Depends(current_admin)])
