@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -35,6 +36,8 @@ from itp.face_refine import (
     prepare_face_photo,
     valid_glb,
 )
+from itp.commerce import CommerceError
+from itp.manual_qr import MAX_QR_UPLOAD, ManualQrStore, render_qr
 from itp.garments import (
     MAX_GARMENT_IMAGES,
     STATUSES,
@@ -78,6 +81,7 @@ from itp.outfit_service import recommend as recommend_outfits
 from itp.pipeline import Pipeline
 from itp.payment_service import PaymentService
 from itp.payment_routes import payment_router
+from itp.payments import MANUAL_QR_FIELDS, PaymentError, manual_qr_dir
 from itp.payment_settings import (
     PaymentSettingsUpdate,
     public_payment_settings,
@@ -701,6 +705,7 @@ def create_app(
         return {
             "settings": public_payment_settings(app.state.settings),
             "status": app.state.payments.status(),
+            "manual": app.state.payments.manual_document(),
         }
 
     @app.get("/api/admin/payments", include_in_schema=False,
@@ -724,17 +729,104 @@ def create_app(
                 save_payment_settings(config_path, changes)
             except OSError as exc:
                 raise HTTPException(500, "无法保存支付配置，请检查服务器文件权限") from exc
+            retired = [
+                getattr(app.state.settings, field)
+                for field in MANUAL_QR_FIELDS.values()
+                if changes.get(field) == "" and getattr(app.state.settings, field)
+            ]
             app.state.settings = updated
             # Field names only: values never reach a log line.
             logger.info(
                 "Admin %s updated payment credentials: %s", admin["name"], sorted(changes)
             )
             app.state.payments.reload(updated)
+        # A cleared collection code is deleted after the new settings are live.
+        for name in retired:
+            manual_codes.remove(name)
         document = admin_payment_document()
         # Probing calls the official gateway, so it happens after the new
         # credentials are live and never inside the settings lock.
         document["checks"] = app.state.payments.probe_all()
         return document
+
+    # --- manual collection codes ---------------------------------------------
+    # The operator's own WeChat/Alipay codes.  An upload is re-encoded and kept
+    # as a file under data/payment/manual; the settings file only ever holds its
+    # random name.  No channel here can mark an order paid — that is the
+    # operator's decision, and it happens in confirm_manual below.
+    manual_codes = ManualQrStore(manual_qr_dir(settings))
+
+    @app.post("/api/admin/payments/manual/qr", include_in_schema=False)
+    async def upload_manual_qr(channel: str = Form(...), file: UploadFile = File(...),
+                               admin: dict = Depends(current_admin)):
+        payment_config_limiter.check(("manual-qr", admin["id"]), attempts=10, seconds=60)
+        field = MANUAL_QR_FIELDS.get("manual_" + channel)
+        if not field:
+            raise HTTPException(422, "只能上传微信或支付宝收款码")
+        try:
+            data = await file.read(MAX_QR_UPLOAD + 1)
+        finally:
+            await file.close()
+        try:
+            picture = await asyncio.to_thread(render_qr, data)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        name = await asyncio.to_thread(manual_codes.save, picture)
+        previous = getattr(app.state.settings, field)
+        if f"ITP_{field.upper()}" in os.environ:
+            manual_codes.remove(name)
+            raise HTTPException(409, "该配置已由进程环境变量指定，请在启动环境中修改")
+        with settings_lock:
+            try:
+                save_payment_settings(config_path, {field: name})
+            except OSError as exc:
+                manual_codes.remove(name)
+                raise HTTPException(500, "无法保存收款码配置，请检查服务器文件权限") from exc
+            values = app.state.settings.model_dump()
+            values[field] = name
+            updated = Settings(_env_file=None, **values)
+            app.state.settings = updated
+            app.state.payments.reload(updated)
+        if previous and previous != name:
+            manual_codes.remove(previous)
+        logger.info("Admin %s uploaded the %s collection code", admin["name"], channel)
+        return admin_payment_document()
+
+    @app.get("/api/admin/payments/manual/orders", include_in_schema=False,
+             dependencies=[Depends(current_admin)])
+    def admin_manual_orders(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+        """Orders a customer says they paid; only a human can confirm them."""
+        total, items = app.state.payments.manual_orders(limit=limit, offset=offset)
+        return {"total": total, "items": items}
+
+    @app.post("/api/admin/payments/manual/orders/{order_id}/confirm", include_in_schema=False)
+    def admin_manual_confirm(order_id: str, admin: dict = Depends(current_admin)):
+        payment_config_limiter.check(("manual-confirm", admin["id"]), attempts=60, seconds=60)
+        try:
+            order = app.state.payments.confirm_manual(order_id)
+        except KeyError as exc:
+            raise HTTPException(404, "订单不存在") from exc
+        except (PaymentError, CommerceError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except sqlite3.OperationalError as exc:
+            # The whole fulfillment rolls back with the transaction, so the
+            # order stays pending and the operator can simply try again.
+            logger.warning("Manual confirmation %s hit a busy database", order_id)
+            raise HTTPException(503, "订单确认暂时失败，请稍后重试") from exc
+        logger.info("Admin %s confirmed manual order %s", admin["name"], order_id)
+        return order
+
+    @app.post("/api/admin/payments/manual/orders/{order_id}/reject", include_in_schema=False)
+    def admin_manual_reject(order_id: str, admin: dict = Depends(current_admin)):
+        payment_config_limiter.check(("manual-reject", admin["id"]), attempts=60, seconds=60)
+        try:
+            order = app.state.payments.reject_manual(order_id)
+        except KeyError as exc:
+            raise HTTPException(404, "订单不存在") from exc
+        except PaymentError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        logger.info("Admin %s rejected manual order %s", admin["name"], order_id)
+        return order
 
     @app.get("/api/admin/accounts", include_in_schema=False,
              dependencies=[Depends(current_admin)])
@@ -798,6 +890,21 @@ def create_app(
             "note": "仅显示服务端当前保留的任务；顾客确认保存后服务端副本即被删除，"
                     "没有历史任务记录。",
         }
+
+    @app.get("/api/payments/manual/qr/{key}")
+    def manual_qr_image(key: str):
+        """The operator's collection code, shown to whoever holds an order.
+
+        Public by design: the payer's browser loads it as a plain image, and
+        the key is a fresh random name that only this order's checkout carries.
+        It is a picture to scan, never a payment confirmation.
+        """
+        path = manual_codes.path(key)
+        if not path:
+            raise HTTPException(404, "收款码不存在")
+        return FileResponse(path, media_type="image/png", headers={
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        })
 
     @app.post("/api/assets", status_code=201)
     async def upload(file: UploadFile = File(...), remove_background: bool = Query(False),

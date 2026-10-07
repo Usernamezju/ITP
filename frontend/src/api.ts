@@ -123,6 +123,14 @@ export type AdminProviderSettings = {
   image_provider: string; unsplash_access_key_set: boolean; pixabay_api_key_set: boolean;
 };
 export type AdminPaymentChannel = { id: string; ready: boolean; reason: string };
+/** One uploaded personal collection code; the picture is served by its key. */
+export type AdminManualChannel = {
+  label: string; qr_set: boolean; updated: number | null; qr_key: string;
+  ready: boolean; reason: string;
+};
+export type AdminManualPayment = {
+  enabled: boolean; channels: Record<'manual_wechat' | 'manual_alipay', AdminManualChannel>;
+};
 export type AdminPaymentDocument = {
   settings: {
     alipay: { app_id_set: boolean; seller_id_set: boolean;
@@ -135,6 +143,8 @@ export type AdminPaymentDocument = {
     callbacks: { alipay: string; wechat: string };
   };
   checks?: { channel: string; ok: boolean; message: string }[];
+  /** Uploaded manual collection codes and the switch that offers them. */
+  manual?: AdminManualPayment;
 };
 /** Only the fields the operator is changing; an empty string clears a value. */
 export type AdminPaymentUpdate = Partial<Record<

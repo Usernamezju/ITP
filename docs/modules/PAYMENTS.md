@@ -64,6 +64,43 @@
 二维码通过本地库生成 PNG，不调用二维码服务。前端轮询本系统订单，不自动
 重复访问支付渠道；“查询支付结果”才请求服务端官方查询，且有频率限制。
 
+## 人工收款码（ManualQrProvider）
+
+没有商户号时，运维可以上传自己的微信/支付宝个人收款码作为备用通道。
+它与其他渠道共用 `payment_orders`，但**没有任何自动确认路径**：
+
+- `ManualQrProvider.create()` 只返回管理员上传图片的地址
+  （`checkout.qr_image` → `/api/payments/manual/qr/<key>`），前端沿用现有
+  二维码展示，无需改动顾客端。
+- `query()` 永远返回 `None`：扫码、轮询、「刷新支付状态」都不会把订单变成
+  已支付；`callback()` 同样不产生任何已验证事件（`/api/payments/callbacks/`
+  只接受 alipay/wechat/mock，人工渠道名直接 422）。顾客端也没有提交
+  “支付成功”的入口。
+- 订单初始状态是 `pending`，有效期 24 小时（在线渠道 30 分钟），以便顾客
+  稍后再扫码；过期只影响前端展示，不影响管理员确认已经到账的款项。
+- 只有管理员能改变结果：`/admin` 的「待确认人工支付订单」按订单号、账号、
+  金额、类型、渠道、创建时间和状态列出待确认订单，可「确认到账」或「拒绝」。
+  拒绝会清空该订单的二维码并置为 `rejected`，避免顾客继续转账。
+
+确认到账由服务端在**一个事务**内完成，并且复用线上渠道同一条履约路径
+（`PaymentService.fulfill` → `payment_transactions` + 钱包入账或订阅发放
+→ 置 `paid`），绝不只有 `UPDATE payment_orders SET state='paid'`：
+
+- 交易号是确定性的 `manual_<uuid5(order_id)>`，同一订单重复确认得到同一笔
+  交易，第二次确认直接返回已支付订单，不会重复入账；钱包流水与订阅都按
+  `order_id` 幂等。
+- 金额、币种、归属全部取自订单行本身，确认接口不接受任何客户端金额或状态。
+- 数据库忙或履约异常时整个事务回滚并返回 503，订单保持待确认，可安全重试。
+
+收款码存在 `data/payment/manual/<32 位随机名>.png`（`data/` 已被 Git 忽略），
+上传时由服务端解码并重新编码为 PNG，限制 4 MiB / 1600 万像素 / 短边 120px；
+设置文件里只写入这个随机文件名（`ITP_PAYMENT_MANUAL_WECHAT_QR`、
+`ITP_PAYMENT_MANUAL_ALIPAY_QR`），图片本身既不进 `.env` 也不进 Git。
+`ITP_PAYMENT_MANUAL_ENABLED` 是总开关：关闭后顾客端不再出现人工收款选项、
+无法创建新的人工订单，已创建的订单仍可确认到账（钱确实已经收了）。
+收款码图片通过公开的随机地址提供，因为 `<img>` 不会带令牌；地址本身不可
+猜测，且响应 `no-store`，它只是一张供扫码的图片，不代表任何支付结果。
+
 ## 运维配置与回调
 
 字段见 `.env.example`。支付宝需要应用 ID、卖家 ID、RSA 私钥及支付宝公钥；
@@ -90,14 +127,20 @@ Nginx 已取消站点级 Basic Auth，支付回调无需浏览器账号，但服
 
 | 接口 | 作用 |
 | --- | --- |
-| `GET /api/admin/payments` | 只回传“是否已配置”布尔值、公钥 ID 列表、渠道就绪状态与回调地址 |
+| `GET /api/admin/payments` | 只回传“是否已配置”布尔值、公钥 ID 列表、渠道就绪状态、回调地址与人工收款码状态 |
 | `POST /api/admin/payments/config` | 校验并写入凭据，重载渠道，随后探测官方接口并回传结果 |
+| `POST /api/admin/payments/manual/qr` | 上传/替换一张收款码（multipart：`channel` + `file`），服务端重新编码后保存 |
+| `GET /api/admin/payments/manual/orders` | 待确认的人工订单（`limit`/`offset`，含账号名） |
+| `POST /api/admin/payments/manual/orders/{id}/confirm` | 核实到账后确认：一个事务内入账并置为 `paid` |
+| `POST /api/admin/payments/manual/orders/{id}/reject` | 拒绝：不入账，清空二维码并置为 `rejected` |
 
 请求字段：`alipay_app_id`、`alipay_seller_id`、`alipay_private_key`、
 `alipay_public_key`、`wechat_app_id`、`wechat_mch_id`、`wechat_merchant_serial`、
 `wechat_private_key`、`wechat_api_v3_key`、`wechat_platform_key_id` +
 `wechat_platform_public_key`（成对追加）、`wechat_platform_key_remove`（移除一个
-已轮换的公钥 ID）。`extra="forbid"`；未出现的字段保持原值，显式空串表示清除。
+已轮换的公钥 ID）、`payment_manual_enabled`（人工收款总开关）、
+`payment_manual_clear`（`wechat` 或 `alipay`，移除该收款码）。
+`extra="forbid"`；未出现的字段保持原值，显式空串表示清除。
 
 写入前的校验（失败返回 422 且不改动任何文件）：控制字符；标识符字符集；
 RSA 私钥/公钥（或证书）能否解析且不低于 2048 位；APIv3 密钥是否 32 字符；
@@ -138,6 +181,17 @@ pytest 使用生成的测试 RSA 密钥及离线 HTTP 响应，覆盖签名篡�
 凭据探测（成功、返回真实交易、未验签响应、401）。Playwright 验证非默认价格、
 整数分、待支付不加余额、无凭据时不回退 mock，以及管理员在控制台填写凭据后
 只看到就绪状态与自检结果、页面不回显密钥。
+
+`tests/test_manual_payments.py` 覆盖人工收款的全部拒绝路径与唯一入账路径：
+未确认时刷新任意次数都不入账、普通用户与匿名无法确认或拒绝、管理员确认后
+钱包按订单金额入账且只写一条 `payment_transactions`（交易号
+`manual_<uuid5>`）、重复确认不重复入账、会员订单改为发放订阅而不是加余额、
+拒绝后不可再确认且已支付订单不可拒绝、确认接口忽略客户端提交的金额与状态、
+伪造回调 422、履约中数据库忙碌时 503 且事务回滚、关闭开关后不能创建新人工
+订单而已有订单仍可确认、上传收款码的权限/类型/大小校验，以及清除收款码会
+同时删除文件。Playwright 另外验证顾客端在人工订单上看到管理员上传的二维码、
+反复刷新仍是「等待支付」且没有模拟付款入口，以及管理员在控制台完成上传、
+启用、确认到账与拒绝。
 
 **尚未完成真实商户验收**：上述链路使用官方协议与真实签名算法，但在没有
 真实支付宝/微信商户凭据的环境中，二维码下单、官方回调验签与主动查询只经过

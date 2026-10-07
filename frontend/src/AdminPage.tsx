@@ -4,9 +4,9 @@ import {
   RefreshCw, ShieldCheck, Sparkles, Users, Wallet,
 } from 'lucide-react';
 import {
-  ApiError, type AdminAccount, type AdminFeedback, type AdminJobs, type AdminOrder, type AdminPaymentDocument,
-  type AdminPaymentUpdate, type AdminProductAiDocument, type AdminProductAiUpdate,
-  type AdminProviderSettings, type AdminStatus, type AdminUsage,
+  ApiError, api, type AdminAccount, type AdminFeedback, type AdminJobs, type AdminManualPayment,
+  type AdminOrder, type AdminPaymentDocument, type AdminPaymentUpdate, type AdminProductAiDocument,
+  type AdminProductAiUpdate, type AdminProviderSettings, type AdminStatus, type AdminUsage,
 } from './api';
 import { accountApi, logoutAccount, useAccountSession, type Account } from './accountApi';
 import { stageLabels } from './jobView';
@@ -228,6 +228,10 @@ function AdminDashboard({ account, onSignOut }: { account: Account; onSignOut: (
       <section className="admin-section wide">
         <h2 className="admin-section-title"><Sparkles size={15} />AI 识图配置（可写）</h2>
         <ProductAiSection onSaved={() => void load()} />
+      </section>
+      <section className="admin-section wide">
+        <h2 className="admin-section-title"><Wallet size={15} />待确认人工支付订单</h2>
+        <ManualOrdersSection />
       </section>
     </div>}
   </main>;
@@ -549,6 +553,8 @@ function PaymentConfigSection({ onSaved }: { onSaved: () => void }) {
           : <small>尚未登记公钥；请在上面填写公钥 ID 与公钥内容。</small>}
       </div>}
     </section>)}
+    {document.manual && <ManualQrFields manual={document.manual} busy={busy}
+      onDocument={setDocument} onChanged={onSaved} onError={setError} onNotice={setNotice} />}
     {error && <p role="alert" className="admin-error"><AlertCircle size={14} />{error}</p>}
     {notice && <p role="status" className="admin-notice">{notice}</p>}
     <div className="admin-config-actions">
@@ -670,6 +676,185 @@ function AccountsSection({ accounts }: { accounts: Accounts }) {
         when(item.created),
       ])
     } />
+  </>;
+}
+
+/**
+ * The operator's own WeChat/Alipay collection codes.  A picture alone changes
+ * nothing: the channel is offered to payers only after the switch below is on,
+ * and even then an order stays pending until this console confirms it.
+ */
+function ManualQrFields({ manual, busy, onDocument, onChanged, onError, onNotice }: {
+  manual: AdminManualPayment; busy: boolean; onDocument: (document: AdminPaymentDocument) => void;
+  onChanged: () => void; onError: (message: string) => void; onNotice: (message: string) => void;
+}) {
+  const [uploading, setUploading] = useState('');
+  const [working, setWorking] = useState(false);
+  const channels: { id: 'manual_wechat' | 'manual_alipay'; hint: string }[] = [
+    { id: 'manual_wechat', hint: '微信「我 → 服务 → 收付款 → 二维码收款」保存的图片' },
+    { id: 'manual_alipay', hint: '支付宝「收钱」页面保存的收款码图片' },
+  ];
+
+  async function run(action: () => Promise<void>) {
+    if (working || busy) return;
+    setWorking(true); onError(''); onNotice('');
+    try { await action(); } catch (err) { onError(err instanceof Error ? err.message : '操作失败'); }
+    finally { setWorking(false); }
+  }
+
+  function upload(channel: string, file: File | undefined) {
+    if (!file) return;
+    const body = new FormData();
+    body.append('channel', channel);
+    body.append('file', file);
+    void run(async () => {
+      setUploading(channel);
+      try {
+        const updated = await api<AdminPaymentDocument>('/api/admin/payments/manual/qr',
+          { method: 'POST', body });
+        onDocument(updated);
+        onNotice('收款码已上传；确认无误后再打开人工收款开关。');
+        onChanged();
+      } finally { setUploading(''); }
+    });
+  }
+
+  return <section className="settings-section admin-manual">
+    <div className="settings-section-title"><span>03</span>
+      <div><h3>人工收款码</h3>
+        <p>上传个人收款码作为备用通道：顾客照旧下单并看到二维码，但订单只能由管理员核实到账后确认。</p></div></div>
+    <div className="admin-config-fields">
+      <label className="wide admin-manual-switch">
+        <span className="admin-config-label">人工收款
+          <i className={manual.enabled ? 'admin-pill ready' : 'admin-pill'}>
+            {manual.enabled ? '已启用' : '未启用'}</i></span>
+        <input type="checkbox" checked={manual.enabled} disabled={working || busy}
+          aria-label="启用人工收款"
+          onChange={(event) => void run(async () => {
+            onDocument(await accountApi<AdminPaymentDocument>('/api/admin/payments/config', 'POST',
+              { payment_manual_enabled: event.target.checked }));
+            onNotice(event.target.checked
+              ? '人工收款已启用：上传了收款码的渠道会出现在顾客的支付方式里。'
+              : '人工收款已关闭：不再创建新的人工订单，已有订单仍可确认。');
+            onChanged();
+          })} />
+        <small>关闭后顾客不能再选择人工收款；已经下单的订单不受影响，仍可确认到账。</small>
+      </label>
+      {channels.map(({ id, hint }) => {
+        const channel = manual.channels[id];
+        return <div key={id} className="wide admin-manual-channel">
+          <div className="admin-manual-preview">
+            {channel?.qr_set
+              ? <img src={`/api/payments/manual/qr/${channel.qr_key}`} alt={`${channel.label}收款码`} />
+              : <span className="admin-manual-empty">未上传</span>}
+          </div>
+          <div className="admin-manual-copy">
+            <span className="admin-config-label">{channel?.label || id}收款码
+              <i className={channel?.qr_set ? 'admin-pill ready' : 'admin-pill'}>
+                {channel?.qr_set ? '已上传' : '未上传'}</i></span>
+            <small>{hint}</small>
+            <small>{channel?.qr_set
+              ? `上传时间：${when(channel.updated)}${channel.ready ? '' : ` · ${channel.reason}`}`
+              : '上传后立即生效，替换会换一个新的图片地址。'}</small>
+            <span className="admin-manual-actions">
+              <label className="button small">
+                {uploading === id ? '正在上传…' : '上传/替换'}
+                <input type="file" accept="image/png,image/jpeg,image/webp"
+                  aria-label={`上传${channel?.label || id}收款码`} disabled={working || busy}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    upload(id, file);
+                  }} />
+              </label>
+              {channel?.qr_set && <button type="button" className="text-button" disabled={working || busy}
+                onClick={() => void run(async () => {
+                  if (!window.confirm(`移除${channel.label}收款码？已创建的订单不受影响。`)) return;
+                  onDocument(await accountApi<AdminPaymentDocument>('/api/admin/payments/config', 'POST',
+                    { payment_manual_clear: id.slice(7) }));
+                  onNotice(`${channel.label}收款码已移除。`);
+                  onChanged();
+                })}>移除</button>}
+            </span>
+          </div>
+        </div>;
+      })}
+    </div>
+  </section>;
+}
+
+/** Pending manual orders: the only place a manual transfer becomes money. */
+function ManualOrdersSection() {
+  const [data, setData] = useState<{ total: number; items: AdminOrder[] } | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      setData(await accountApi<{ total: number; items: AdminOrder[] }>(
+        `/api/admin/payments/manual/orders?limit=${FEEDBACK_PAGE}&offset=${offset}`));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) sessionToken.write('');
+      setData(null);
+      setError(err instanceof Error ? err.message : '读取失败');
+    } finally { setLoading(false); }
+  }, [offset]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function decide(order: AdminOrder, action: 'confirm' | 'reject') {
+    if (working) return;
+    if (action === 'reject'
+      && !window.confirm(`拒绝订单 ${order.id.slice(0, 8)}…？顾客看到的二维码会失效，金额不会入账。`)) return;
+    setWorking(order.id); setError(''); setNotice('');
+    try {
+      await accountApi(`/api/admin/payments/manual/orders/${order.id}/${action}`, 'POST', {});
+      setNotice(action === 'confirm'
+        ? `订单 ${order.id.slice(0, 8)}… 已确认到账，余额或会员权益已按既有逻辑入账。`
+        : `订单 ${order.id.slice(0, 8)}… 已拒绝，未产生任何入账。`);
+      await load();
+    } catch (err) { setError(err instanceof Error ? err.message : '操作失败'); }
+    finally { setWorking(''); }
+  }
+
+  if (error && !data) return <p role="alert" className="admin-error">
+    <AlertCircle size={14} />本节读取失败：{error}</p>;
+  if (!data) return <p className="muted">{loading ? '正在读取人工订单…' : '暂时无法读取人工订单'}</p>;
+  const pages = Math.max(1, Math.ceil(data.total / FEEDBACK_PAGE));
+  return <>
+    <p className="admin-note">只有这里能让人工订单入账：服务端在同一个事务里写入流水、按类型入账并标记订单，
+      重复确认不会重复入账，顾客刷新订单即可看到结果。</p>
+    <Table head={['订单号', '账号', '金额', '类型', '支付渠道', '创建时间', '状态', '处理']}
+      empty="没有待确认的人工支付订单"
+      rows={data.items.map((order) => [
+        <code>{order.id}</code>,
+        order.account_name || '—',
+        money(order.amount_cents),
+        orderKinds[order.kind] || order.kind,
+        order.provider === 'manual_wechat' ? '微信收款码' : '支付宝收款码',
+        when(order.created),
+        <span className="admin-pending">{orderStates[order.state] || order.state}</span>,
+        <span className="admin-manual-actions">
+          <button type="button" className="button small" disabled={Boolean(working)}
+            onClick={() => void decide(order, 'confirm')}>
+            {working === order.id ? <LoaderCircle size={13} className="spin" /> : null} 确认到账</button>
+          <button type="button" className="text-button" disabled={Boolean(working)}
+            onClick={() => void decide(order, 'reject')}>拒绝</button>
+        </span>,
+      ])} />
+    {error && <p role="alert" className="admin-error"><AlertCircle size={14} />{error}</p>}
+    {notice && <p role="status" className="admin-notice">{notice}</p>}
+    <div className="admin-pagination">
+      <button type="button" className="button small" disabled={loading || offset === 0}
+        onClick={() => setOffset((value) => Math.max(0, value - FEEDBACK_PAGE))}>上一页</button>
+      <span>第 {Math.floor(offset / FEEDBACK_PAGE) + 1} / {pages} 页 · 共 {data.total} 条</span>
+      <button type="button" className="button small"
+        disabled={loading || offset + FEEDBACK_PAGE >= data.total}
+        onClick={() => setOffset((value) => value + FEEDBACK_PAGE)}>下一页</button>
+    </div>
   </>;
 }
 

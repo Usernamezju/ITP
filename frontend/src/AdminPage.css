@@ -50,6 +50,24 @@
 .admin-feedback-body{display:block;max-width:380px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
 .admin-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:13px;font-size:11px;color:var(--theme-muted)}
 .admin-pagination .button{min-height:36px}
+/* Manual collection: the uploaded codes and the orders awaiting a decision. */
+.admin-manual{margin-top:15px}
+.admin-manual-switch{cursor:pointer}
+.admin-manual-switch input{width:18px;height:18px;margin-top:4px}
+.admin-manual-channel{display:flex;gap:14px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--theme-border)}
+.admin-manual-preview{display:grid;place-items:center;flex-shrink:0;width:104px;height:104px;border:1px dashed var(--theme-border);border-radius:8px;background:var(--theme-bg);overflow:hidden}
+.admin-manual-preview img{width:100%;height:100%;object-fit:contain;background:#fff}
+.admin-manual-empty{font-size:11px;color:var(--theme-muted)}
+.admin-manual-copy{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.admin-manual-copy small{color:var(--theme-muted);line-height:1.6}
+.admin-manual-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.admin-manual-actions label.button{position:relative;cursor:pointer;margin:0}
+.admin-manual-actions input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.admin-pending{color:var(--theme-warning);white-space:nowrap}
+@media(max-width:760px){
+  .admin-manual-channel{flex-wrap:wrap}
+  .admin-manual-preview{width:100%;height:150px}
+}
 .admin-ok{color:var(--theme-success)}
 .admin-off{color:var(--theme-muted)}
 .admin-rows{padding:14px 20px 16px;display:grid;gap:9px}

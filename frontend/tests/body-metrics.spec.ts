@@ -34,6 +34,11 @@ async function openWorkspace(page: Page) {
     }
   });
   await page.goto('/');
+  // The panel is inert until this browser's own store has been read back;
+  // typing before that would be overwritten by the stored values.
+  const panel = page.getByRole('region', { name: '人体数据' });
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toHaveAttribute('aria-busy', 'true');
   return profileCalls;
 }
 

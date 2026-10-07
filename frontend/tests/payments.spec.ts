@@ -3,12 +3,19 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+/** A real 1x1 PNG, so the collection code is an image the browser loads. */
+const MANUAL_QR = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64');
 type Order = { id: string; kind: string; provider: string; amount_cents: number; state: string;
-  description: string; created: number; expires: number; checkout: { mock: boolean } | null };
+  description: string; created: number; expires: number;
+  checkout: { mock?: boolean; qr_image?: string } | null };
 type Ledger = { id: string; kind: string; delta_cents: number; balance_cents: number; reference: string; created: number };
 
 async function openPayments(page: Page, enabled = true, options: { orders?: Order[]; ledger?: Ledger[];
-  failCreateOnce?: boolean; failRefreshOnce?: boolean; failWalletOnce?: boolean } = {}) {
+  failCreateOnce?: boolean; failRefreshOnce?: boolean; failWalletOnce?: boolean;
+  /** Offer the operator's own collection code instead of the test channel. */
+  manual?: boolean } = {}) {
   let balance = 8765;
   let member = false;
   const orders: Order[] = options.orders || [];
@@ -33,8 +40,11 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
       contact: '', role: 'customer', created: 1 } });
     if (path === '/api/pricing') return route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
       { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567, period_months: 12, purchasable: true, entitlements: {} }] } });
-    if (path === '/api/payments/methods') return route.fulfill({ json: { methods: enabled ? [{ id: 'mock', name: '模拟支付（仅开发测试）', ready: true }]
-      : [{ id: 'alipay', name: '支付宝', ready: false }, { id: 'wechat', name: '微信支付', ready: false }] } });
+    if (path.startsWith('/api/payments/manual/qr/')) return route.fulfill({ body: MANUAL_QR, contentType: 'image/png' });
+    if (path === '/api/payments/methods') return route.fulfill({ json: { methods: !enabled
+      ? [{ id: 'alipay', name: '支付宝', ready: false }, { id: 'wechat', name: '微信支付', ready: false }]
+      : options.manual ? [{ id: 'manual_wechat', name: '微信收款码（人工确认）', ready: true }]
+      : [{ id: 'mock', name: '模拟支付（仅开发测试）', ready: true }] } });
     if (path === '/api/account/commerce') {
       expect(request.headers()['authorization']).toBe('Bearer payment-token');
       if (walletFails) { walletFails = false; return route.abort('failed'); }
@@ -52,8 +62,13 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
         const body = request.postDataJSON();
         writes.push({ body, key: request.headers()['idempotency-key'] });
         if (createFails) { createFails = false; return route.abort('failed'); }
-        const order = { id: 'order-' + orders.length, kind: body.kind, provider: 'mock', amount_cents: body.kind === 'membership' ? 4567 : body.amount_cents,
-          description: body.kind === 'membership' ? '个性化推荐年会员' : 'ITP 钱包充值', state: 'pending', created: 1, expires: 1800000000, checkout: { mock: true } };
+        const manual = body.provider === 'manual_wechat';
+        const order: Order = { id: 'order-' + orders.length, kind: body.kind,
+          provider: manual ? 'manual_wechat' : 'mock',
+          amount_cents: body.kind === 'membership' ? 4567 : body.amount_cents,
+          description: body.kind === 'membership' ? '个性化推荐年会员' : 'ITP 钱包充值', state: 'pending',
+          created: 1, expires: 1800000000,
+          checkout: manual ? { qr_image: '/api/payments/manual/qr/' + 'a'.repeat(32) } : { mock: true } };
         orders.unshift(order);
         return route.fulfill({ status: 201, json: order });
       }
@@ -103,6 +118,29 @@ test('membership sends only the plan and uses server-provided pricing', async ({
   await page.getByRole('button', { name: '模拟付款（仅开发测试）', exact: true }).click();
   await page.getByRole('button', { name: '查看会员详情' }).click();
   await expect(page.getByText('个性化推荐权益：已开通')).toBeVisible();
+});
+
+test('a manual collection code is shown, and refreshing never marks it paid', async ({ page }) => {
+  const writes = await openPayments(page, true, { manual: true });
+  // The customer page is untouched: same select, same button, same refresh.
+  await expect(page.getByLabel('支付方式')).toHaveValue('manual_wechat');
+  await page.getByLabel('充值金额（元）').fill('50');
+  await page.getByRole('button', { name: '创建充值订单' }).click();
+
+  const panel = page.getByRole('region', { name: '支付订单' });
+  await expect(panel.getByRole('status')).toHaveText('等待支付');
+  await expect(panel.getByAltText('扫码支付二维码'))
+    .toHaveAttribute('src', /^\/api\/payments\/manual\/qr\/[a-f0-9]{32}$/);
+  expect(writes[0].body.provider).toBe('manual_wechat');
+
+  // Refreshing only reads the stored state: a payer cannot confirm anything.
+  await panel.getByRole('button', { name: '刷新支付状态' }).click();
+  await expect(panel.getByRole('status')).toHaveText('等待支付');
+  await panel.getByRole('button', { name: '刷新支付状态' }).click();
+  await expect(panel.getByRole('status')).toHaveText('等待支付');
+  // There is no browser-side "I paid" control on a manual order either.
+  await expect(panel.getByRole('button', { name: '模拟付款（仅开发测试）' })).toHaveCount(0);
+  await expect(page.getByText('¥87.65', { exact: true })).toBeVisible();
 });
 
 test('unconfigured production payment does not fall back to mock or ask for keys', async ({ page }) => {

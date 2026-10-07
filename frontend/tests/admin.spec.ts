@@ -106,6 +106,25 @@ const paymentCallbacks = {
   wechat: 'https://pay.example.org/api/payments/callbacks/wechat',
 };
 /** Nothing configured yet: the console must offer the form and say why. */
+/** A real 1x1 PNG, so the upload carries a decodable image. */
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64');
+
+const manualChannels = () => ({
+  manual_wechat: { label: '微信', qr_set: false, updated: null, qr_key: '',
+    ready: false, reason: '平台未启用人工收款' },
+  manual_alipay: { label: '支付宝', qr_set: false, updated: null, qr_key: '',
+    ready: false, reason: '平台未启用人工收款' },
+});
+const manualOrdersSeed: Record<string, unknown>[] = [{
+  id: 'm'.repeat(32), kind: 'recharge', provider: 'manual_wechat', amount_cents: 5000,
+  currency: 'CNY', state: 'pending', created: 1790671818, updated: 1790671818,
+  expires: 1800000000, paid_at: null, description: 'ITP 钱包充值', plan_id: null,
+  checkout: { qr_image: '/api/payments/manual/qr/' + 'a'.repeat(32) },
+  user_id: 'c'.repeat(32), account_name: 'alice',
+}];
+
 const payments = {
   settings: {
     alipay: { app_id_set: false, seller_id_set: false, private_key_set: false, public_key_set: false },
@@ -165,12 +184,17 @@ type Options = {
   paymentConfig?: (payload: unknown) => unknown;
   /** Answers the AI-config POST; the payload is asserted by the test. */
   productAiConfig?: (payload: unknown) => unknown;
+  /** Serve the manual collection document, its orders and its writes. */
+  manual?: boolean;
 };
 
 /** `/admin` with the platform's admin endpoints mocked, like the other specs. */
 async function openAdmin(page: Page, options: Options = {}) {
   const { startSignedIn = true, role = 'admin', fail = [], unauthorized = false } = options;
   const calls: string[] = [];
+  // A fresh copy per call: these fixtures are mutated as the console works.
+  const manual = { enabled: false, channels: manualChannels() };
+  const pending = options.manual ? manualOrdersSeed.map((order) => ({ ...order })) : [];
   const body: Record<string, unknown> = {
     '/api/admin/status': status, '/api/admin/settings': settings,
     '/api/admin/accounts': accounts, '/api/admin/usage': usage,
@@ -189,6 +213,49 @@ async function openAdmin(page: Page, options: Options = {}) {
     } else if (path === '/api/admin/payments/config' && options.paymentConfig) {
       calls.push(path);
       await route.fulfill({ json: options.paymentConfig(route.request().postDataJSON()) });
+    } else if (options.manual && path === '/api/admin/payments/manual/qr') {
+      // The real route is multipart: the payload carries the channel name.
+      calls.push(path);
+      if ((route.request().postData() || '').includes('manual_alipay')) {
+        manual.channels.manual_alipay = { label: '支付宝', qr_set: true, updated: 1790671818,
+          qr_key: 'b'.repeat(32), ready: manual.enabled, reason: '' };
+      } else {
+        manual.channels.manual_wechat = { label: '微信', qr_set: true, updated: 1790671818,
+          qr_key: 'a'.repeat(32), ready: manual.enabled, reason: '' };
+      }
+      await route.fulfill({ json: { ...payments, manual } });
+    } else if (options.manual && path === '/api/admin/payments/config') {
+      calls.push(path);
+      const payload = route.request().postDataJSON() as {
+        payment_manual_enabled?: boolean; payment_manual_clear?: string };
+      if (payload.payment_manual_enabled !== undefined) {
+        manual.enabled = payload.payment_manual_enabled;
+        for (const key of ['manual_wechat', 'manual_alipay'] as const) {
+          manual.channels[key] = { ...manual.channels[key], ready: manual.enabled
+            && manual.channels[key].qr_set, reason: manual.enabled ? '' : '平台未启用人工收款' };
+        }
+      }
+      if (payload.payment_manual_clear === 'wechat') {
+        manual.channels.manual_wechat = { label: '微信', qr_set: false, updated: null,
+          qr_key: '', ready: false, reason: '平台未启用人工收款' };
+      }
+      await route.fulfill({ json: { ...payments, manual } });
+    } else if (path === '/api/admin/payments/manual/orders') {
+      // The pending list always loads; it is simply empty without the fixture.
+      calls.push(path);
+      await route.fulfill({ json: { total: pending.length, items: pending } });
+    } else if (/\/api\/admin\/payments\/manual\/orders\/[\w-]+\/(confirm|reject)$/.test(path)) {
+      calls.push(path);
+      const id = path.split('/')[6];
+      const at = pending.findIndex((order) => order.id === id);
+      const [decided] = pending.splice(at, 1);
+      await route.fulfill({ json: { ...decided,
+        state: path.endsWith('confirm') ? 'paid' : 'rejected' } });
+    } else if (path === '/api/admin/payments') {
+      calls.push(path);
+      await route.fulfill({ json: { ...payments, manual } });
+    } else if (path.startsWith('/api/payments/manual/qr/')) {
+      await route.fulfill({ status: 200, body: 'png', contentType: 'image/png' });
     } else if (path.startsWith('/api/admin/')) {
       calls.push(path);
       if (unauthorized) await route.fulfill({ status: 401, json: { detail: '登录状态已失效' } });
@@ -288,6 +355,56 @@ test('the operator reads user feedback, anonymous reports included', async ({ pa
   // Reading the inbox is all an operator can do: no button posts anywhere.
   await expect(inbox.getByRole('button', { name: '上一页' })).toBeDisabled();
   await expect(inbox.getByRole('button', { name: '下一页' })).toBeDisabled();
+});
+
+test('the operator uploads a collection code and switches manual collection on', async ({ page }) => {
+  const calls = await openAdmin(page, { manual: true });
+  const panel = section(page, '支付配置（可写）');
+  const manualBlock = panel.locator('.admin-manual');
+  await expect(manualBlock).toBeVisible();
+  await expect(manualBlock.getByText('未启用')).toBeVisible();
+  await expect(manualBlock.locator('.admin-manual-empty')).toHaveCount(2);
+
+  await manualBlock.getByLabel('上传微信收款码').setInputFiles({
+    name: 'wechat-code.png', mimeType: 'image/png', buffer: PNG,
+  });
+  // The upload carries the channel, and the picture is shown back for checking.
+  expect(calls).toContain('/api/admin/payments/manual/qr');
+  await expect(manualBlock.getByAltText('微信收款码')).toBeVisible();
+  await expect(manualBlock.locator('.admin-manual-empty')).toHaveCount(1);
+
+  // A picture alone offers nothing: the switch is what puts it in front of
+  // payers. It is a controlled checkbox, so the state comes back from the save.
+  await manualBlock.getByLabel('启用人工收款').click();
+  expect(calls.filter((path) => path === '/api/admin/payments/config').length).toBeGreaterThan(0);
+  await expect(manualBlock.getByText('已启用')).toBeVisible();
+  await expect(panel.getByText('人工收款已启用', { exact: false })).toBeVisible();
+});
+
+test('a pending manual order is confirmed from the console, and exactly once', async ({ page }) => {
+  const calls = await openAdmin(page, { manual: true });
+  const inbox = section(page, '待确认人工支付订单');
+  await expect(inbox.getByRole('cell', { name: 'alice' })).toBeVisible();
+  await expect(inbox.getByText('¥50.00')).toBeVisible();
+  await expect(inbox.getByText('微信收款码')).toBeVisible();
+  await expect(inbox.getByText('钱包充值')).toBeVisible();
+  await expect(inbox.getByText('支付确认中')).toBeVisible();
+
+  await inbox.getByRole('button', { name: '确认到账' }).click();
+  expect(calls.some((path) => path.endsWith('/confirm'))).toBe(true);
+  await expect(inbox.getByText('已确认到账', { exact: false })).toBeVisible();
+  // The order leaves the pending list, and nothing on this page posts a paid flag.
+  await expect(inbox.getByText('没有待确认的人工支付订单')).toBeVisible();
+});
+
+test('rejecting a manual order asks first and credits nothing', async ({ page }) => {
+  const calls = await openAdmin(page, { manual: true });
+  page.on('dialog', (dialog) => void dialog.accept());
+  const inbox = section(page, '待确认人工支付订单');
+  await inbox.getByRole('button', { name: '拒绝' }).click();
+  expect(calls.some((path) => path.endsWith('/reject'))).toBe(true);
+  await expect(inbox.getByText('已拒绝', { exact: false })).toBeVisible();
+  await expect(inbox.getByText('没有待确认的人工支付订单')).toBeVisible();
 });
 
 test('a signed-in customer is refused and no admin endpoint is called', async ({ page }) => {

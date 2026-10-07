@@ -19,7 +19,11 @@ User = Annotated[dict, Depends(current_user)]
 class PaymentOrderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["recharge", "membership"]
-    provider: Literal["alipay", "wechat", "mock"] | None = None
+    # 人工收款渠道与真实商户渠道并列：顾客照旧只选一个支付方式，
+    # 人工订单由管理员在控制台核实到账后确认。
+    provider: Literal[
+        "alipay", "wechat", "mock", "manual_wechat", "manual_alipay"
+    ] | None = None
     amount_cents: StrictInt | None = Field(default=None, ge=1, le=10000000)
     plan_id: str | None = Field(default=None, min_length=1, max_length=80)
 

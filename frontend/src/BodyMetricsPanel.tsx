@@ -91,7 +91,9 @@ export function BodyMetricsPanel({ ready, onSaved }: { ready: boolean; onSaved?:
   const dirty = fields.some((field) => draft[field.key] !== stored[field.key]);
   const filled = fields.filter((field) => draft[field.key].trim()).length;
 
-  return <section className="body-metrics" aria-label="人体数据">
+  // Until this browser's own store is read back, the empty fields are not the
+  // customer's answer, and the panel is inert — say so instead of looking stuck.
+  return <section className="body-metrics" aria-label="人体数据" aria-busy={status === 'loading'}>
     <div className="field-heading">
       <label className="field-label"><Ruler size={12} /> 人体数据</label>
       <span>选填 · 仅存本机 · {filled}/6</span>

@@ -8,14 +8,30 @@ import logging
 import sqlite3
 import threading
 import time
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import qrcode
 
 from itp.commerce import CommerceError, IdempotencyConflict, cents
-from itp.payments import AlipayProvider, MockProvider, PaymentError, VerifiedPayment, WechatProvider
+from itp.payments import (
+    MANUAL_CHANNELS,
+    MANUAL_QR_FIELDS,
+    AlipayProvider,
+    ManualQrProvider,
+    MockProvider,
+    PaymentError,
+    VerifiedPayment,
+    WechatProvider,
+    manual_qr_dir,
+)
 
 logger = logging.getLogger(__name__)
+
+# A collection code is scanned whenever the payer gets to it, so a manual
+# order stays payable far longer than the 30 minutes an online channel allows.
+MANUAL_ORDER_TTL = 24 * 3600
+# States in which a manual order is still waiting for an operator decision.
+MANUAL_OPEN_STATES = ("created", "pending", "uncertain")
 
 
 class PaymentService:
@@ -56,6 +72,7 @@ class PaymentService:
         """
         self.settings = settings
         self.notify_origin = settings.payment_notify_origin or settings.public_origin
+        self.manual_dir = manual_qr_dir(settings)
         self.providers = {}
         self.unavailable = {}
         for name, factory, configured in (
@@ -73,6 +90,16 @@ class PaymentService:
             except PaymentError:
                 self.unavailable[name] = "支付凭据未通过服务端校验"
                 logger.warning("Payment provider %s configuration is invalid", name)
+        # Manual collection needs no gateway, no callback origin and no
+        # credentials — only the operator's own uploaded picture.
+        for channel, label in MANUAL_CHANNELS.items():
+            if not settings.payment_manual_enabled:
+                self.unavailable[channel] = "平台未启用人工收款"
+                continue
+            try:
+                self.providers[channel] = ManualQrProvider(settings, channel, root=self.manual_dir)
+            except PaymentError as exc:
+                self.unavailable[channel] = str(exc)
         if settings.payment_mock_enabled:
             self.providers["mock"] = MockProvider(settings, self.accounts)
         return self.status()
@@ -89,6 +116,19 @@ class PaymentService:
             }
             for name in ("alipay", "wechat")
         ]
+        if self.settings.payment_manual_enabled:
+            # Listed only once the operator switched manual collection on;
+            # ``manual_document`` always reports the codes either way.
+            for name, label in MANUAL_CHANNELS.items():
+                ready = name in self.providers
+                channels.append({
+                    "id": name,
+                    "ready": ready,
+                    "reason": "" if ready else self.unavailable.get(
+                        name, "平台未启用该支付方式"
+                    ),
+                    "label": f"{label}收款码（人工确认）",
+                })
         if "mock" in self.providers:
             channels.append({"id": "mock", "ready": True, "reason": "仅开发测试环境可用"})
         return {
@@ -102,10 +142,38 @@ class PaymentService:
             "channels": channels,
         }
 
+    def manual_document(self):
+        """What the operator console shows for the manual collection codes."""
+        channels = {}
+        for name, label in MANUAL_CHANNELS.items():
+            key = getattr(self.settings, MANUAL_QR_FIELDS[name]) or ""
+            path = self.manual_dir / key if key else None
+            exists = bool(path and path.is_file())
+            channels[name] = {
+                "label": label,
+                "qr_set": exists,
+                "updated": int(path.stat().st_mtime) if exists else None,
+                # The key is what a rotation replaces; it is not a secret.
+                "qr_key": key if exists else "",
+                "ready": name in self.providers,
+                "reason": "" if name in self.providers
+                else self.unavailable.get(name, "平台未启用该支付方式"),
+            }
+        return {"enabled": bool(self.settings.payment_manual_enabled), "channels": channels}
+
     def probe(self, name):
         """Ask the channel itself whether the stored credentials really work."""
         if name == "mock":
             return {"channel": name, "ok": "mock" in self.providers, "message": "模拟支付无需校验"}
+        if name in MANUAL_CHANNELS:
+            ready = name in self.providers
+            return {
+                "channel": name,
+                "ok": ready,
+                "message": "收款码已就绪，等待人工确认到账"
+                if ready
+                else self.unavailable.get(name, "平台未启用该支付方式"),
+            }
         provider = self.providers.get(name)
         if provider is None:
             return {
@@ -129,7 +197,10 @@ class PaymentService:
         return {"channel": name, "ok": True, "message": "凭据已通过官方接口校验"}
 
     def probe_all(self):
-        return [self.probe(name) for name in ("alipay", "wechat")]
+        names = ["alipay", "wechat"]
+        if self.settings.payment_manual_enabled:
+            names.extend(MANUAL_CHANNELS)
+        return [self.probe(name) for name in names]
 
     def methods(self):
         return [
@@ -143,6 +214,12 @@ class PaymentService:
                 "ready": name in self.providers,
             }
             for name in ("alipay", "wechat", *(["mock"] if "mock" in self.providers else []))
+        ] + [
+            # Offered to payers only once its picture is uploaded and the
+            # operator has switched manual collection on.
+            {"id": name, "name": f"{label}收款码（人工确认）", "ready": True}
+            for name, label in MANUAL_CHANNELS.items()
+            if name in self.providers
         ]
 
     def provider(self, name):
@@ -205,7 +282,7 @@ class PaymentService:
             }
         return {
             state: counts.get(state, {"count": 0, "amount_cents": 0})
-            for state in ("created", "submitting", "pending", "paid", "uncertain")
+            for state in ("created", "submitting", "pending", "paid", "uncertain", "rejected")
         }
 
     @staticmethod
@@ -286,6 +363,7 @@ class PaymentService:
                 else ("platform-free", "platform-free")
             )
             now, order_id = int(time.time()), uuid4().hex
+            ttl = MANUAL_ORDER_TTL if provider_name in MANUAL_CHANNELS else 1800
             conn.execute(
                 "INSERT INTO payment_orders VALUES (?,?,?,?,?,?,?, ?,?,?,NULL, ?,?,?,?,?,?,NULL)",
                 (
@@ -298,7 +376,7 @@ class PaymentService:
                     "created",
                     now,
                     now,
-                    now + 1800,
+                    now + ttl,
                     idempotency_key,
                     fingerprint,
                     json.dumps(plan) if plan else None,
@@ -335,7 +413,17 @@ class PaymentService:
                 intent = self.provider(order["provider"]).create(
                     order, self.notify_origin + "/api/payments/callbacks/" + order["provider"]
                 )
-                if "qr_code" in intent:
+                if "qr_image" in intent:
+                    # A manual collection code is a picture the operator
+                    # uploaded; the payer is shown that same picture.
+                    image = intent["qr_image"]
+                    if (
+                        not isinstance(image, str)
+                        or not image.startswith("/api/payments/manual/qr/")
+                        or len(image) > 2048
+                    ):
+                        raise PaymentError("收款码响应无效")
+                elif "qr_code" in intent:
                     if len(intent["qr_code"].encode()) > 2048:
                         raise PaymentError("支付二维码响应过大")
                     stream = io.BytesIO()
@@ -343,6 +431,9 @@ class PaymentService:
                     intent["qr_image"] = (
                         "data:image/png;base64," + base64.b64encode(stream.getvalue()).decode()
                     )
+                elif not intent.get("mock"):
+                    # The local test provider deliberately has no scannable entry.
+                    raise PaymentError("支付渠道未返回可扫描的支付入口")
                 with self.accounts.connect() as conn:
                     # A valid asynchronous callback may have already set paid.
                     conn.execute(
@@ -432,6 +523,93 @@ class PaymentService:
             "Verified payment fulfilled: provider=%s order=%s", event.provider, event.order_id
         )
         return self.public(self.get(event.order_id))
+
+    @staticmethod
+    def manual_transaction_id(order_id: str) -> str:
+        """One stable id per order, so a repeated confirmation is the same credit.
+
+        Derived from the order instead of drawn at random: a second click (or a
+        second operator) reproduces the same transaction row, which is what
+        makes the fulfillment below idempotent rather than merely guarded.
+        """
+        return "manual_" + str(uuid5(NAMESPACE_URL, "itp-manual-payment:" + order_id))
+
+    def confirm_manual(self, order_id: str):
+        """Credit one manually collected order; only an operator may call this."""
+        order = self.get(order_id)
+        if not order:
+            raise KeyError(order_id)
+        if order["provider"] not in MANUAL_CHANNELS:
+            raise PaymentError("该订单不是人工收款订单")
+        if order["state"] == "rejected":
+            raise PaymentError("该订单已被拒绝，不能再确认到账")
+        if order["state"] == "paid":
+            # Already credited once; confirming again changes nothing.
+            return self.public(order)
+        # Reuse the audited fulfillment path: it re-checks provider, amount,
+        # currency and owner, writes payment_transactions, credits the wallet
+        # or grants the membership, and only then marks the order paid — all
+        # inside one transaction, and idempotent on the transaction id below.
+        return self.fulfill(VerifiedPayment(
+            provider=order["provider"],
+            order_id=order["id"],
+            transaction_id=self.manual_transaction_id(order["id"]),
+            amount_cents=order["amount_cents"],
+            currency=order["currency"],
+            app_id=order["app_id"],
+            merchant_id=order["merchant_id"],
+        ))
+
+    def reject_manual(self, order_id: str):
+        """Refuse one unconfirmed order; nothing is credited and the code goes."""
+        with self._lock(order_id):
+            with self.accounts.connect() as conn:
+                conn.row_factory = sqlite3.Row
+                conn.execute("BEGIN IMMEDIATE")
+                order = self._order(
+                    conn.execute(
+                        "SELECT * FROM payment_orders WHERE id=?", (order_id,)
+                    ).fetchone()
+                )
+                if not order:
+                    raise KeyError(order_id)
+                if order["provider"] not in MANUAL_CHANNELS:
+                    raise PaymentError("该订单不是人工收款订单")
+                if order["state"] == "paid":
+                    raise PaymentError("已确认到账的订单不能拒绝")
+                # The stored code is dropped: a refused order must not invite
+                # the payer to transfer money after the decision.
+                conn.execute(
+                    "UPDATE payment_orders SET state='rejected',checkout=NULL,updated=? WHERE id=?",
+                    (int(time.time()), order_id),
+                )
+        return self.public(self.get(order_id))
+
+    def manual_orders(self, *, limit=50, offset=0):
+        """Unconfirmed manual orders, newest first, for the operator console."""
+        placeholders = ",".join("?" for _ in MANUAL_CHANNELS)
+        with self.accounts.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM payment_orders WHERE provider IN ({placeholders}) "
+                f"AND state IN ({','.join('?' for _ in MANUAL_OPEN_STATES)})",
+                (*MANUAL_CHANNELS, *MANUAL_OPEN_STATES),
+            ).fetchone()[0]
+            rows = conn.execute(
+                "SELECT o.*, m.name AS account_name FROM payment_orders o "
+                "LEFT JOIN merchants m ON m.id = o.user_id "
+                f"WHERE o.provider IN ({placeholders}) "
+                f"AND o.state IN ({','.join('?' for _ in MANUAL_OPEN_STATES)}) "
+                "ORDER BY o.created DESC, o.rowid DESC LIMIT ? OFFSET ?",
+                (*MANUAL_CHANNELS, *MANUAL_OPEN_STATES, limit, offset),
+            ).fetchall()
+        return total, [
+            self.public(self._order(row)) | {
+                "user_id": row["user_id"],
+                "account_name": row["account_name"],
+            }
+            for row in rows
+        ]
 
     def query(self, order_id, user_id):
         order = self.get(order_id, user_id)

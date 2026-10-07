@@ -1,9 +1,13 @@
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# One uploaded collection code: `<32 hex>.png` under data/payment/manual.
+MANUAL_QR_KEY = re.compile(r"^[a-f0-9]{32}\.png$")
 
 KLEIN_PROVIDERS = ("flux_klein", "flux_klein_9b")
 BFL_PROVIDERS = ("flux", "flux_max")
@@ -77,6 +81,12 @@ class Settings(BaseSettings):
     wechat_private_key: SecretStr = SecretStr("")
     wechat_api_v3_key: SecretStr = SecretStr("")
     wechat_platform_keys: dict[str, SecretStr] = Field(default_factory=dict)
+    # Manual collection codes: the operator's own WeChat/Alipay QR pictures,
+    # uploaded from the console and kept as files under data/payment/manual.
+    # Only the random file key is stored here; the picture never enters .env.
+    payment_manual_enabled: bool = False
+    payment_manual_wechat_qr: str = ""
+    payment_manual_alipay_qr: str = ""
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
 
@@ -96,6 +106,12 @@ class Settings(BaseSettings):
                 raise ValueError("Mock payments are forbidden in production or public deployments")
             if len(self.payment_mock_secret.get_secret_value()) < 32:
                 raise ValueError("Development mock payments require a server-side signing secret")
+        for field in ("payment_manual_wechat_qr", "payment_manual_alipay_qr"):
+            value = getattr(self, field)
+            if value and not MANUAL_QR_KEY.match(value):
+                raise ValueError(
+                    "人工收款码文件名无效：只能是控制台上传后生成的随机文件名"
+                )
         if self.payment_notify_origin:
             url = urlparse(self.payment_notify_origin)
             if (url.scheme != "https" or not url.hostname or url.username or url.password

@@ -46,6 +46,8 @@ uv run --no-sync uvicorn itp.api:create_app --factory --host 127.0.0.1 --port 80
 
 **商品购买链接与点击统计。** 商品新增可选 `purchase_url`（只接受 `http://` / `https://`，拒绝 `javascript:` 等危险协议、内嵌账号密码和空白）；顾客点购买入口时前端**先调用** `POST /api/garments/{id}/clicks` 落盘，再用 `noopener,noreferrer` 打开新标签页，统计失败只提示不中断跳转。`garment_clicks` 表记录 `id`、`garment_id`、`merchant_id`、`created`，并按商品/商家与时间建索引；商家通过 `GET /api/merchant/analytics` 读取**自己的**今日/本月/累计点击、逐商品明细与近 14 天趋势，越权访问被拒绝。
 
+**人工收款码。** 没有商户号时，运维可在 `/admin` →「支付配置」上传自己的微信/支付宝个人收款码并开启人工收款：顾客端与商家端界面完全不变，仍沿用「选择支付方式 → 显示二维码 → 刷新状态」的流程，二维码就是管理员上传的那张图片。人工渠道没有任何自动确认路径——`ManualQrProvider.query()` 永远返回未支付，回调路由不接受人工渠道，顾客端也没有提交「支付成功」的入口；只有管理员在 `/admin` 的「待确认人工支付订单」里核实到账后才能确认。确认在服务端一个事务内复用现有履约逻辑（`payment_transactions` + 钱包入账或订阅发放 + 置 `paid`），交易号 `manual_<uuid5(order_id)>` 确定性生成，重复确认不会重复入账。收款码图片保存在 `data/payment/manual/`，`.env` 里只有随机文件名，二者都不进 Git。详见 [支付订单](docs/modules/PAYMENTS.md)。
+
 **用户反馈。** 顶栏头像旁的「反馈」入口（桌面图标+文字，手机图标+44px 点击区）打开居中弹窗、窄屏为贴底抽屉，填写类型、内容与可选联系方式后 `POST /api/feedback` 落库到账号库的 `feedback` 表；接口对访客开放——过期令牌不算错误，但账号只能来自服务端校验过的令牌，未登录条目在后台显示为「匿名」。`GET /api/admin/feedback` 仅管理员可读，`/admin` 的「用户反馈」区块只读展示并分页。详见 [用户反馈](docs/modules/FEEDBACK.md)。
 
 **推荐算法与权重。** `size_match.py` 的尺码适配仍是核心层，`hybrid_recommendation.py` 在其上叠加风格、季节、场景、历史与探索，权重集中在 `RANKING_WEIGHTS`：尺码 0.72、风格 0.08、季节 0.05、场景 0.05、历史 0.08、探索 0.02；无历史、无筛选时 `R = S`，原尺码分数与排序完全保留。完整公式、居中调整与可靠性平滑见 [穿搭推荐](docs/modules/OUTFITS.md)。
@@ -74,7 +76,7 @@ npm run test:e2e --prefix frontend
 
 它覆盖桌面和手机布局的离线上传、姿势切换、本地 GLB 预览和可用状态；另验证客户端不请求配置接口、不展示凭据输入。本轮新增 `frontend/tests/commerce-upgrade.spec.ts`，在真实后端上走完“公开页面无 Basic Auth → 商家建商品并填购买链接 → 顾客记录点击再跳转 → 统计失败仍可打开 → 商家只看自己的点击 → 钱包页”，并把桌面与手机截图写到 `/home/fjp/temp/itp-commerce-qa/`。
 
-本轮相关后端测试：`tests/test_deployment.py`（站点无 Basic Auth、遗留接口 404）、`tests/test_product_links.py`（危险链接拒绝与新增式迁移）、`tests/test_product_clicks.py`（点击累计、跨商家隔离、并发与重启、按维度排行榜与分页）、`tests/test_feedback.py`（匿名与登录提交、账号绑定、长度与类型校验、限流、数据库忙、管理员可读而他人 401/403）、`tests/test_hybrid_recommendation.py`、`tests/test_outfit_service.py`、`tests/test_recommendation_history_api.py`（冷启动、历史影响、极端偏好、不完整人体数据、商家无商品、匿名不落盘）、`tests/test_size_match.py`（原尺码算法回归）与 `tests/test_commerce.py`、`tests/test_payments.py`（未登录 401、越权隔离、充值、订单查询、流水与自动退款）。
+本轮相关后端测试：`tests/test_deployment.py`（站点无 Basic Auth、遗留接口 404）、`tests/test_product_links.py`（危险链接拒绝与新增式迁移）、`tests/test_product_clicks.py`（点击累计、跨商家隔离、并发与重启、按维度排行榜与分页）、`tests/test_manual_payments.py`（人工收款：未确认不入账、普通用户无法确认、管理员确认、重复确认不重复入账、会员发放、事务回滚、关闭后不可下单）、`tests/test_feedback.py`（匿名与登录提交、账号绑定、长度与类型校验、限流、数据库忙、管理员可读而他人 401/403）、`tests/test_hybrid_recommendation.py`、`tests/test_outfit_service.py`、`tests/test_recommendation_history_api.py`（冷启动、历史影响、极端偏好、不完整人体数据、商家无商品、匿名不落盘）、`tests/test_size_match.py`（原尺码算法回归）与 `tests/test_commerce.py`、`tests/test_payments.py`（未登录 401、越权隔离、充值、订单查询、流水与自动退款）。
 
 人工验收：用 1440×900 与 412×915 视口逐个打开首页、`/outfits`、`/merchant`、`/account`、`/admin`，确认无横向溢出、图片不拉伸、商品图/名称/理由/价格/购买入口层级清晰、算法解释可展开、商家三个 KPI 与明细可读、余额与充值可见，并用 Tab 检查焦点。部署验收见 [AutoDL 部署说明](deploy/autodl/README.md)。
 

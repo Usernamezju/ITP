@@ -11,7 +11,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field
 
 from itp.config import Settings
-from itp.payments import PaymentError, private_key, public_key
+from itp.payments import MANUAL_QR_FIELDS, PaymentError, private_key, public_key
 from itp.provider_settings import write_env_values
 
 # Only these settings keys may be written from the operator console.  The
@@ -28,6 +28,11 @@ PAYMENT_FIELDS = (
     "wechat_private_key",
     "wechat_api_v3_key",
     "wechat_platform_keys",
+    # Manual collection stores only the switch and the uploaded file names;
+    # the pictures themselves live under data/payment/manual.
+    "payment_manual_enabled",
+    "payment_manual_wechat_qr",
+    "payment_manual_alipay_qr",
 )
 
 MAX_IDENTIFIER = 64
@@ -67,6 +72,9 @@ class PaymentSettingsUpdate(BaseModel):
     wechat_platform_key_id: str | None = Field(default=None, max_length=MAX_IDENTIFIER)
     wechat_platform_public_key: str | None = Field(default=None, max_length=MAX_SECRET)
     wechat_platform_key_remove: str | None = Field(default=None, max_length=MAX_IDENTIFIER)
+    # Manual collection: on/off, and which uploaded code to clear.
+    payment_manual_enabled: bool | None = None
+    payment_manual_clear: str | None = Field(default=None, max_length=16)
 
 
 def _reject_controls(field: str, value: str) -> None:
@@ -114,6 +122,19 @@ def validate_payment_update(
         keys[_check_identifier("wechat_platform_key_id", key_id)] = key_pem
     if keys != settings.wechat_platform_keys:
         changes["wechat_platform_keys"] = keys
+
+    if "payment_manual_enabled" in provided:
+        changes["payment_manual_enabled"] = bool(provided["payment_manual_enabled"])
+    clear = provided.get("payment_manual_clear", "") or ""
+    if clear:
+        field = MANUAL_QR_FIELDS.get("manual_" + clear)
+        if not field:
+            raise ValueError("只能移除微信或支付宝收款码")
+        if not getattr(settings, field):
+            raise ValueError("该收款码尚未上传")
+        # The file itself is removed by the console; only the key is cleared
+        # here, and only that channel stops being offered.
+        changes[field] = ""
 
     values = settings.model_dump()
     values.update(changes)
@@ -165,6 +186,13 @@ def public_payment_settings(settings: Settings) -> dict:
             # Key identifiers are public (they travel in callback headers) and
             # an operator needs them to drop a rotated key.
             "platform_key_ids": sorted(settings.wechat_platform_keys),
+        },
+        # Manual collection: the switch and whether each code is uploaded.  The
+        # file key stays server-side; the console shows the picture instead.
+        "manual": {
+            "enabled": bool(settings.payment_manual_enabled),
+            "wechat_qr_set": bool(settings.payment_manual_wechat_qr),
+            "alipay_qr_set": bool(settings.payment_manual_alipay_qr),
         },
     }
 

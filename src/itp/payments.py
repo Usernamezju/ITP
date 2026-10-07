@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import parse_qsl, quote
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,20 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from itp.commerce import cents
+from itp.manual_qr import ManualQrStore
+
+# Manual collection: the two personal codes an operator can upload.  The ids
+# are the provider names stored on the order and on the credit transaction.
+MANUAL_CHANNELS = {"manual_wechat": "微信", "manual_alipay": "支付宝"}
+MANUAL_QR_FIELDS = {
+    "manual_wechat": "payment_manual_wechat_qr",
+    "manual_alipay": "payment_manual_alipay_qr",
+}
+
+
+def manual_qr_dir(settings):
+    """Where uploaded collection codes live; inside the (ignored) data dir."""
+    return Path(settings.data_dir) / "payment" / "manual"
 
 
 class PaymentError(ValueError):
@@ -474,6 +489,53 @@ class WechatProvider(PaymentProvider):
             if isinstance(exc, PaymentError):
                 raise
             raise PaymentError("微信支付通知解密失败") from exc
+
+
+class ManualQrProvider(PaymentProvider):
+    """A personal collection code the operator confirms by hand.
+
+    Deliberately passive, and the only provider that cannot verify anything:
+    the money moves between two personal accounts, so the platform has no
+    signed event and no query to trust.  ``create`` merely points the payer at
+    the operator's own picture, ``query`` always reports "still pending", and
+    there is no callback to forge — only an administrator, after checking the
+    real account statement, may mark the order paid.
+    """
+
+    def __init__(self, settings, channel: str, *, root):
+        if channel not in MANUAL_CHANNELS:
+            raise PaymentError("未知的人工收款渠道")
+        field = MANUAL_QR_FIELDS[channel]
+        name = getattr(settings, field)
+        store = ManualQrStore(root)
+        path = store.path(name)
+        if not path:
+            raise PaymentError(f"尚未上传{MANUAL_CHANNELS[channel]}收款码")
+        self.name = channel
+        self.qr_name = name
+        self.qr_path = path
+        # A manual transfer carries no merchant application; the order row
+        # still records who owns it so fulfillment can re-check the pair.
+        self.app_id = self.merchant_id = "manual-collection"
+
+    def create(self, order, notify_url):
+        return {
+            "qr_image": f"/api/payments/manual/qr/{self.qr_name}",
+            # The frontend shows the collection code, never a payment result.
+            "manual": True,
+        }
+
+    def query(self, order):
+        """Never confirm anything: only an operator can verify a transfer."""
+        return None
+
+    def callback(self, raw, headers):
+        """Manual collection has no callback; any posted event is meaningless."""
+        return None
+
+    def verify_credentials(self):
+        """The picture exists (the constructor proved it); nothing else to check."""
+        return None
 
 
 class MockProvider(PaymentProvider):
