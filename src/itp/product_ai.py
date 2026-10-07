@@ -294,6 +294,9 @@ class ProductDescriber:
             ],
             "max_tokens": DESCRIBE_MAX_TOKENS,
             "temperature": 0.2,
+            # Gateways such as HaiJing stream by default; ask for the whole
+            # answer so one code path reads every provider's reply.
+            "stream": False,
         }
         try:
             with httpx.Client(timeout=AI_TIMEOUT, trust_env=False,

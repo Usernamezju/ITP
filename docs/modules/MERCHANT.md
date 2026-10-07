@@ -296,10 +296,16 @@ API 启动在写事务内检查 `PRAGMA table_info(garments)`，仅新增 nullab
 - 识别调用走服务端凭据（`ITP_PRODUCT_AI_*`，密钥缺省回落到姿势编辑那把
   `ITP_POSE_API_KEY`），浏览器永远拿不到密钥；每个商家每小时最多 20 次，失败时
   返回中文原因（链接无法访问 / 指向内网 / 没有主图 / 识别服务暂不可用）。
-- 当前默认模型是千问视觉（`qwen-vl-max`）：**SeedDream 是图像生成模型，不能读图**，
-  且其方舟账号欠费时连生成都会 403。任何 OpenAI 兼容的视觉 chat 接口都可以替换，
-  例如把端点指向 `https://ark.cn-beijing.volces.com/api/v3/chat/completions`、
-  模型改成已开通的 Seed 视觉模型、密钥填方舟 Key，无需改代码。
+- 模型可切换，代码不绑定厂商（`ITP_PRODUCT_AI_*`，缺省端点/模型是 DashScope 的
+  `qwen-vl-max`，密钥回落到 `ITP_POSE_API_KEY`）。两条已验证可用的通道：
+  **海鲸 `https://api.haijingai.com/v1/chat/completions` + `gpt-4o`**（与 FLUX.2 Max
+  同一把 Key）和 **DashScope 千问视觉**。
+- 注意：**SeedDream 是图像生成模型，不能读图**；方舟上要用它读图必须另外开通一个
+  Seed 视觉模型（`doubao-seed-2-1-*` 等），端点填
+  `https://ark.cn-beijing.volces.com/api/v3/chat/completions`。当前方舟账号欠费时
+  该账号的一切调用都会 403，虚拟试穿的 SeedDream 通道同样受影响。
+- 请求显式带 `stream: false`：部分网关（海鲸）默认流式返回 SSE，关掉之后所有厂商
+  都是同一份 JSON 响应。
 
 ## 点击统计与商家数据概览
 
