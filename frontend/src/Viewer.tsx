@@ -36,7 +36,7 @@ export function Viewer({ url, label }: { url: string | null; label: string }) {
     let disposed = false;
     setError(''); setStats(''); setWireframe(false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x171d1a, 1);
+    renderer.setClearColor(0x1A1A1A, 1);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
     host.appendChild(renderer.domElement);
@@ -51,17 +51,17 @@ export function Viewer({ url, label }: { url: string | null; label: string }) {
       controls.update();
     };
     reset.current = resetCamera; resetCamera();
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x859785, 2.6));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 2.6));
     const key = new THREE.DirectionalLight(0xfff3dd, 4);
     key.position.set(4, 7, 5); scene.add(key);
     const fill = new THREE.DirectionalLight(0xb7d7ff, 2);
     fill.position.set(-4, 3, -2); scene.add(fill);
-    const grid = new THREE.GridHelper(12, 24, 0x415a49, 0x2a372f);
+    const grid = new THREE.GridHelper(12, 24, 0x555555, 0x333333);
     scene.add(grid);
     // The empty workspace marker is a viewport guide, never a generated asset.
     const guide = new THREE.Group();
     const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.1, 1.1, 1.1));
-    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xa7c89b, transparent: true, opacity: 0.4 });
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.4 });
     const cube = new THREE.LineSegments(edges, lineMaterial);
     cube.position.y = 0.8; guide.add(cube);
     if (!url) scene.add(guide);

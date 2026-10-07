@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, type Dispatch, type Rea
 import { useNavigate } from 'react-router-dom';
 import { api, type Asset, type Capabilities, type Job, type PoseMode } from './api';
 import { useAccountSession } from './accountApi';
-import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type ContrastTheme } from './theme';
+import { applyTheme, loadTheme, type Theme } from './theme';
 import { hydrateLocalData, localAsset, localRecords } from './localData';
 import { sessionToken } from './session';
 import { TERMINAL, acknowledge, saveJob, type LocalJob } from './transient';
@@ -22,10 +22,8 @@ export type CustomerWorkspace = {
   modelPrice: number | null;
   error: string;
   setError: Dispatch<SetStateAction<string>>;
-  colorTheme: ColorTheme;
-  setColorTheme: Dispatch<SetStateAction<ColorTheme>>;
-  contrastTheme: ContrastTheme;
-  setContrastTheme: Dispatch<SetStateAction<ContrastTheme>>;
+  theme: Theme;
+  setTheme: Dispatch<SetStateAction<Theme>>;
   name: string;
   setName: Dispatch<SetStateAction<string>>;
   front?: Asset;
@@ -86,8 +84,7 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
   const account = useAccountSession();
   const [modelPrice, setModelPrice] = useState<number | null>(null);
   const [error, setError] = useState('');
-  const [colorTheme, setColorTheme] = useState<ColorTheme>(loadColorTheme);
-  const [contrastTheme, setContrastTheme] = useState<ContrastTheme>(loadContrastTheme);
+  const [theme, setTheme] = useState<Theme>(loadTheme);
   const [name, setName] = useState('');
   const [front, setFront] = useState<Asset>();
   const [reference, setReference] = useState<Asset>();
@@ -155,7 +152,7 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  useEffect(() => { applyTheme(colorTheme, contrastTheme); }, [colorTheme, contrastTheme]);
+  useEffect(() => { applyTheme(theme); }, [theme]);
 
   function addJob(item: LocalJob) {
     setJobs((list) => [item, ...list.filter((existing) => existing.id !== item.id)]);
@@ -179,7 +176,7 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
 
   return <CustomerContext.Provider value={{
     caps, jobs, setJobs, selected, account, modelPrice, error, setError,
-    colorTheme, setColorTheme, contrastTheme, setContrastTheme,
+    theme, setTheme,
     name, setName, front, setFront, reference, setReference, views, setViews,
     viewsConsistent, setViewsConsistent, poseMode, changePose,
     background, setBackground, topology, setTopology, texture, setTexture,

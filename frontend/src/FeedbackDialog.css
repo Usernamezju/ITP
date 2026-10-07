@@ -37,14 +37,14 @@
 .feedback-field > span em { font-style: normal; font-size: 12px; font-weight: 400; color: var(--theme-muted); }
 .feedback-field textarea { min-height: 108px; line-height: 1.7; padding: 10px 11px; }
 .feedback-count { display: flex; justify-content: space-between; gap: 10px; color: var(--theme-muted); font-size: 12px; }
-.feedback-too-short { color: var(--commerce-danger); }
+.feedback-too-short { color: var(--theme-danger); }
 .feedback-identity { margin: 0; color: var(--theme-muted); font-size: 12px; line-height: 1.7; }
-.feedback-error { margin: 0; color: var(--commerce-danger); font-size: 13px; line-height: 1.7; }
+.feedback-error { margin: 0; color: var(--theme-danger); font-size: 13px; line-height: 1.7; }
 .feedback-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .feedback-actions .button { min-height: 44px; min-width: 108px; }
 
 .feedback-done { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 34px 22px 24px; text-align: center; }
-.feedback-done > svg { color: var(--commerce-success); }
+.feedback-done > svg { color: var(--theme-success); }
 .feedback-done strong { font-size: 17px; }
 .feedback-done p { margin: 0; color: var(--theme-muted); font-size: 13px; line-height: 1.8; }
 .feedback-done .feedback-actions { margin-top: 12px; }

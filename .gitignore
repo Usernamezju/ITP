@@ -20,5 +20,6 @@ htmlcov/
 # Test scratch: pytest's tmp_path root, its stray temp files, and the
 # project-local build temp directory the launcher uses for esbuild.
 pytest-of-*/
+test-results/
 tmp*
 .buildtmp/

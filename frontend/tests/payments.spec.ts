@@ -123,8 +123,8 @@ test('sub-cent recharge is rejected locally without creating an order', async ({
 
 test('network retry preserves the order idempotency key and never claims payment success', async ({ page }) => {
   const writes = await openPayments(page, true, { failCreateOnce: true });
-  await expect(page.getByRole('button', { name: '立即充值', exact: true })).toHaveCSS('background-color', 'rgb(217, 66, 0)');
-  await expect(page.getByRole('button', { name: '创建充值订单' })).toHaveCSS('background-color', 'rgb(217, 66, 0)');
+  await expect(page.getByRole('button', { name: '立即充值', exact: true })).toHaveCSS('background-color', 'rgb(200, 40, 28)');
+  await expect(page.getByRole('button', { name: '创建充值订单' })).toHaveCSS('background-color', 'rgb(200, 40, 28)');
   await page.getByRole('button', { name: '立即充值', exact: true }).click();
   await expect(page.getByLabel('充值金额（元）')).toBeFocused();
   await page.getByLabel('充值金额（元）').fill('30');

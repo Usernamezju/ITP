@@ -64,22 +64,39 @@ test('generate checklist and uploaded image preview', async ({ page }) => {
   await expect(page.getByLabel('几何目标面数')).toHaveValue('1500000');
 });
 
-test('color and contrast themes persist after reload', async ({ page }) => {
+test('the two display modes persist after reload', async ({ page }) => {
   await openStudio(page);
   await page.getByRole('link', { name: '设置', exact: true }).click();
-  await page.getByRole('radio', { name: /科技风/ }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'tech');
+  // One radiogroup, two options: 日间模式 is the default.
+  await expect(page.getByRole('radio')).toHaveCount(2);
+  await expect(page.getByRole('radio', { name: /日间模式/ })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: /夜间模式/ }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'night');
   await page.reload();
   await page.getByRole('link', { name: '设置', exact: true }).click();
-  await expect(page.getByRole('radio', { name: /科技风/ })).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('radio', { name: /少女粉/ }).click();
-  await page.getByRole('radio', { name: '高对比度' }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'pink');
-  await expect(page.locator('html')).toHaveAttribute('data-contrast', 'high');
+  await expect(page.getByRole('radio', { name: /夜间模式/ })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: /日间模式/ }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'day');
   await page.reload();
-  await page.getByRole('link', { name: '设置', exact: true }).click();
-  await expect(page.getByRole('radio', { name: /少女粉/ })).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByRole('radio', { name: '高对比度' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'day');
+});
+
+test('an old palette or contrast choice migrates to the day mode', async ({ page }) => {
+  // A browser that still holds the removed multi-theme choice, plus the key
+  // the high-contrast switch wrote.
+  await page.addInitScript(() => {
+    localStorage.setItem('itp-color-theme', 'forest');
+    localStorage.setItem('itp-contrast-theme', 'high');
+  });
+  await openStudio(page);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'day');
+  await expect(page.locator('html')).not.toHaveAttribute('data-contrast', /.+/);
+  const stored = await page.evaluate(() => ({
+    theme: localStorage.getItem('itp-color-theme'),
+    contrast: localStorage.getItem('itp-contrast-theme'),
+  }));
+  // The migrated choice is written back, and the contrast key is gone.
+  expect(stored).toEqual({ theme: 'day', contrast: null });
 });
 
 test('old provider error displays a useful explanation', async ({ page }) => {

@@ -38,7 +38,7 @@
 .body-metrics-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 9px; }
 .body-metrics-actions .text-button:disabled { opacity: .45; }
 .body-metrics-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--theme-primary); font-size: 9px; }
-.body-metrics-error { color: #a3614b; font-size: 9px; }
+.body-metrics-error { color: var(--theme-danger); font-size: 9px; }
 
 @media (max-width: 760px) {
   .body-metrics-grid { grid-template-columns: minmax(0, 1fr); }

@@ -32,10 +32,9 @@ function OutfitsRoute() {
 }
 
 function AccountRoute() {
-  const { account, colorTheme, contrastTheme, setColorTheme, setContrastTheme } = useCustomer();
+  const { account, theme, setTheme } = useCustomer();
   return <AccountPage key={account.user?.id || 'anonymous'} user={account.user} onChanged={account.refresh}>
-    <AppearancePage colorTheme={colorTheme} contrastTheme={contrastTheme}
-      onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} />
+    <AppearancePage theme={theme} onTheme={setTheme} />
   </AccountPage>;
 }
 
