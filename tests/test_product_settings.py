@@ -125,7 +125,8 @@ def test_a_failing_provider_keeps_the_configuration_and_says_why(admin):
     document = response.json()
     assert document["settings"]["model"] == "gpt-4o"
     assert document["check"]["ok"] is False
-    assert "稍后重试" in document["check"]["message"]
+    # A refused credential names the likely cause instead of a generic failure.
+    assert "账号欠费或该模型未授权" in document["check"]["message"]
     # The settings file kept what the operator asked for; only the check failed.
     assert 'ITP_PRODUCT_AI_MODEL="gpt-4o"' in (tmp_path / ".env").read_text(encoding="utf-8")
 

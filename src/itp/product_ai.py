@@ -266,6 +266,25 @@ def _json_object(answer) -> dict:
     return document
 
 
+# The status code alone is enough to point at the usual causes; provider bodies
+# may carry account details, so they are never surfaced or logged.
+REFUSAL_REASONS = {
+    400: "接口拒绝了这次请求，请检查接口地址与模型名是否正确",
+    401: "API Key 未被接受，请检查密钥是否填写正确",
+    402: "服务商提示账户余额不足，请先充值",
+    403: "服务商拒绝了请求，通常是账号欠费或该模型未授权，请检查服务商控制台",
+    404: "接口地址或模型名不正确，或该模型尚未在服务商控制台开通",
+    429: "调用过于频繁或额度已用完，请稍后再试",
+}
+
+
+def _refusal_reason(status: int) -> str:
+    return REFUSAL_REASONS.get(
+        status, "图片识别服务暂时不可用，请稍后重试" if status < 500
+        else "服务商暂时不可用（服务端错误），请稍后重试"
+    )
+
+
 def _probe_image() -> bytes:
     """A tiny opaque square: enough for the model to answer, cheap to send."""
     stream = io.BytesIO()
@@ -330,7 +349,7 @@ class ProductDescriber:
                 )
             if response.status_code != 200:
                 logger.warning("Product AI refused the request: status=%s", response.status_code)
-                raise ProductAiError("图片识别服务暂时不可用，请稍后重试")
+                raise ProductAiError(_refusal_reason(response.status_code))
             answer = response.json()["choices"][0]["message"]["content"]
         except ProductAiError:
             raise

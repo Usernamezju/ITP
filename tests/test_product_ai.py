@@ -210,10 +210,23 @@ def test_the_image_travels_to_the_model_and_the_key_stays_server_side():
     assert body["model"] == settings.product_ai_model
 
 
+@pytest.mark.parametrize("status,message", [
+    (401, "API Key 未被接受"),
+    (403, "账号欠费或该模型未授权"),
+    (404, "尚未在服务商控制台开通"),
+    (429, "额度已用完"),
+    (500, "服务商暂时不可用"),
+])
+def test_a_refusal_points_at_the_likely_cause(status, message):
+    settings = Settings(_env_file=None, pose_api_key="k" * 8)
+    with pytest.raises(ProductAiError, match=message):
+        ProductDescriber(settings, transport=ai_transport(status=status)).describe(photo())
+
+
 def test_a_failing_or_missing_model_is_reported_in_chinese():
     settings = Settings(_env_file=None, pose_api_key="k" * 8)
     with pytest.raises(ProductAiError, match="稍后重试"):
-        ProductDescriber(settings, transport=ai_transport(status=429)).describe(photo())
+        ProductDescriber(settings, transport=ai_transport(status=408)).describe(photo())
     without_key = Settings(_env_file=None)
     with pytest.raises(ProductAiError, match="尚未配置"):
         ProductDescriber(without_key, transport=ai_transport()).describe(photo())
