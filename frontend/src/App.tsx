@@ -25,9 +25,9 @@ function TryOnRoute() {
 }
 
 function OutfitsRoute() {
-  const { caps, ready } = useCustomer();
+  const { ready } = useCustomer();
   const navigate = useNavigate();
-  return <OutfitsPage caps={caps} ready={ready} onModeling={() => navigate('/')} />;
+  return <OutfitsPage ready={ready} onModeling={() => navigate('/')} />;
 }
 
 function AccountRoute() {

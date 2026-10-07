@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Box, Check, ChevronDown, Clock3, Layers3, LoaderCircle, RefreshCw,
+import { ArrowRight, Box, ChevronDown, Layers3, LoaderCircle, RefreshCw,
   RotateCcw, Ruler, Sparkles, Unplug, X } from 'lucide-react';
 import { ApiError, api, post, type BodyAnalysis, type BodyField, type BodyValue,
-  type Capabilities, type Outfit, type OutfitFilterOption, type OutfitImages,
+  type Outfit, type OutfitFilterOption, type OutfitImages,
   type OutfitResponse } from './api';
 import { localAssets, localRecords, localValue } from './localData';
 import { sessionToken } from './session';
@@ -12,14 +12,6 @@ import { ProductPurchase } from './ProductPurchase';
 import { yuanText } from './money';
 import { clearPreferences, historyPreferences, rememberPreference } from './recommendationHistory';
 import './OutfitsPage.css';
-
-const imageProviderLabels: Record<string, string> = {
-  so: '360 图片', unsplash: 'Unsplash', pixabay: 'Pixabay',
-};
-
-function imageProviderLabel(provider?: string): string {
-  return (provider && imageProviderLabels[provider]) || '';
-}
 
 const bodyFieldLabels: { key: BodyField; label: string; unit: string }[] = [
   { key: 'height_cm', label: '身高', unit: 'cm' },
@@ -304,8 +296,8 @@ type LocalModel = { id: string; name: string; created?: number; pose_mode?: stri
 type BodyProfile = Partial<Record<BodyField, number | null>>;
 const PROFILE_KEY = 'body-profile';
 
-export function OutfitsPage({ caps, ready, onModeling }: {
-  caps: Capabilities | null; ready: boolean; onModeling: () => void;
+export function OutfitsPage({ ready, onModeling }: {
+  ready: boolean; onModeling: () => void;
 }) {
   const [local, setLocal] = useState<{ models: LocalModel[]; profile: BodyProfile } | null>(null);
   const [source, setSource] = useState('');
@@ -474,33 +466,6 @@ export function OutfitsPage({ caps, ready, onModeling }: {
         : !error ? <div className="outfits-empty"><Layers3 size={26} strokeWidth={1.2} />
           <span>没有符合条件的套装</span><small>试试把筛选改回「全部」</small></div> : null}
     </section>
-
-    <aside className="outfits-inspector" aria-label="穿搭工作空间">
-      <div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
-      <div className="outfits-service-card">
-        <div className="outfits-service-icon"><Sparkles size={20} strokeWidth={1.5} /></div>
-        <div className="service-line"><span>本地 · 穿搭目录</span><b className="ready">已就绪</b></div>
-        <div className="service-line"><span>图片检索</span>
-          <b className={caps?.outfit_images ? 'ready' : ''}>
-            {imageProviderLabel(caps?.image_provider) || '暂不可用'}</b></div>
-        <div className="service-line"><span>本地 · 去背景</span>
-          <b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '可用' : '暂不可用'}</b></div>
-        <div className="service-line"><span>混元 · 图生 3D</span>
-          <b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '可用' : '暂不可用'}</b></div>
-      </div>
-      <div className="outfits-inspector-heading"><h3>可用于分析的模型</h3><span>{modelJobs.length}</span></div>
-      {modelJobs.length ? <div className="outfits-model-list">
-        {modelJobs.slice(0, 6).map((item) => <button key={item.id} type="button"
-          className={source === item.id ? 'active' : ''} onClick={() => setSource(item.id)}>
-          <span>{source === item.id ? <Check size={13} /> : <Clock3 size={13} />}</span>
-          <b>{item.name}</b>
-          <small>{item.created ? new Date(item.created * 1000).toLocaleDateString('zh-CN') : '本机导入'}</small>
-        </button>)}
-      </div> : <div className="outfits-inspector-empty"><Box size={22} strokeWidth={1.3} />
-        <span>还没有三维模型</span><small>生成后可基于实测比例推荐</small></div>}
-      <div className="inspector-note"><span>推荐说明</span>
-        <p>推荐基于精选目录与模型比例估算，仅供搭配参考；穿搭图片版权归原作者所有。图片检索暂不可用时显示配色示意，可稍后重试。</p></div>
-    </aside>
 
     <dialog ref={dialog} className="outfit-dialog" aria-label={detail ? `${detail.name} 穿搭详情` : '穿搭详情'}
       onCancel={() => setDetail(null)}

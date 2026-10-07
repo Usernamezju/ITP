@@ -2,7 +2,7 @@
 
 .outfits-workspace {
   display: grid;
-  grid-template-columns: 284px minmax(350px, 1fr) 220px;
+  grid-template-columns: 284px minmax(0, 1fr);
   align-items: start;
   gap: 18px;
   max-width: none;
@@ -371,66 +371,6 @@
 }
 .outfits-empty small { font-size:12px; }
 
-/* ---------- 右侧工作空间 ---------- */
-.outfits-inspector { min-width: 0; }
-.outfits-inspector .panel-heading { padding: 16px 0; }
-.outfits-service-card { padding: 15px 0 4px; border-bottom: 1px solid var(--theme-border); }
-.outfits-service-icon {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  margin-bottom: 13px;
-  border-radius: 8px;
-  background: var(--theme-soft);
-  color: var(--theme-primary);
-}
-.outfits-service-card .text-button {
-  width: 100%;
-  justify-content: space-between;
-  margin: 4px 0 13px;
-  padding-top: 12px;
-  border-top: 1px solid var(--theme-border);
-}
-.outfits-inspector-heading { display: flex; justify-content: space-between; margin: 20px 0 11px; }
-.outfits-inspector-heading h3 { font-size:12px; font-weight: 500; }
-.outfits-inspector-heading span { color: var(--theme-muted); font-size:12px; }
-.outfits-model-list { display: grid; gap: 5px; }
-.outfits-model-list button {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 9px;
-  border: 1px solid var(--theme-border);
-  border-radius: 6px;
-  background: var(--theme-surface);
-  text-align: left;
-}
-.outfits-model-list button.active { border-color: var(--theme-primary); background: var(--theme-soft); }
-.outfits-model-list button > span { display: grid; place-items: center; color: var(--theme-primary); }
-.outfits-model-list b {
-  overflow: hidden;
-  font-size:12px;
-  font-weight: 500;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.outfits-model-list small { color: var(--theme-muted); font-size:12px; }
-.outfits-inspector-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  min-height: 130px;
-  border: 1px dashed var(--theme-border);
-  border-radius: 7px;
-  color: var(--theme-muted);
-  font-size:12px;
-}
-.outfits-inspector-empty small { font-size:12px; }
-
 /* ---------- 详情弹窗 ---------- */
 .outfit-dialog {
   width: min(94vw, 880px);
@@ -559,11 +499,10 @@
 .outfit-avoid b { margin-right: 7px; color: var(--theme-text); font-weight: 600; }
 
 @media (min-width: 1600px) {
-  .outfits-workspace { grid-template-columns: 310px minmax(350px, 1fr) 250px; gap: 24px; }
+  .outfits-workspace { grid-template-columns: 310px minmax(0, 1fr); gap: 24px; }
 }
 @media (max-width: 1200px) {
-  .outfits-workspace { grid-template-columns: 270px minmax(320px, 1fr); }
-  .outfits-inspector { display: none; }
+  .outfits-workspace { grid-template-columns: 270px minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .outfits-workspace { display: flex; flex-direction: column; gap: 18px; margin: 0 14px 20px; }

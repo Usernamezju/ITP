@@ -167,9 +167,17 @@ const fit = {
   suggestions: [],
 };
 
-test('outfit page shows measured analysis, photos and ranked looks', async ({ page }) => {
+test('outfit page shows measured analysis, photos and ranked looks', async ({ page }, testInfo) => {
   await openOutfits(page, analysisPayload(true));
   await expect(page.getByRole('heading', { name: '穿搭推荐', exact: true })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: '穿搭工作空间' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '工作空间', exact: true })).toHaveCount(0);
+  await expect(page.locator('.statusbar')).toHaveCount(0);
+  await expect(page.getByLabel('人体分析来源')).toBeVisible();
+  if (testInfo.project.name === 'desktop') {
+    expect(await page.locator('.outfits-workspace').evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(2);
+  }
   await page.locator('.outfits-analysis-details > summary').click();
   await expect(page.getByText('三维模型分析')).toBeVisible();
   await expect(page.getByText('从三维模型包围盒与轮廓切片估算')).toBeVisible();
@@ -186,6 +194,8 @@ test('outfit page shows measured analysis, photos and ranked looks', async ({ pa
   await expect(first.getByRole('img', { name: '初秋打造OL通勤风格' })).toBeVisible({ timeout: 15000 });
   await first.getByRole('button', { name: '换一张柔雾通勤的参考图' }).click();
   await expect(first.getByRole('img', { name: '春季职场穿搭' })).toBeVisible({ timeout: 15000 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('outfits-two-columns.png'), fullPage: true });
 });
 
 test('outfit detail dialog shows photos, source links, items and tips', async ({ page }) => {

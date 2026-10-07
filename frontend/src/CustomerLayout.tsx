@@ -52,7 +52,7 @@ function CustomerChrome() {
         <h1>{TITLES[pathname] ?? TITLES['/']}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       <Outlet />
-      <footer className="statusbar"><span /><span>ITP STUDIO <i>v0.1</i></span></footer>
+      {pathname !== '/outfits' && <footer className="statusbar"><span /><span>ITP STUDIO <i>v0.1</i></span></footer>}
     </div>
   </div>;
 }
