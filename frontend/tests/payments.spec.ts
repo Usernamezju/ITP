@@ -102,6 +102,7 @@ test('membership sends only the plan and uses server-provided pricing', async ({
   expect(writes[0].body.plan_id).toBe('customer_annual');
   expect(writes[0].body).not.toHaveProperty('amount_cents');
   await page.getByRole('button', { name: '模拟付款（仅开发测试）', exact: true }).click();
+  await page.getByRole('button', { name: '查看会员详情' }).click();
   await expect(page.getByText('个性化推荐权益：已开通')).toBeVisible();
 });
 

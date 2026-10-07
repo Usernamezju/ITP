@@ -7,7 +7,7 @@ import { CustomerProvider, useCustomer } from './customerState';
 /** The heading each customer address shows; unknown paths fall back to the workspace. */
 const TITLES: Record<string, string> = {
   '/': '从一张图，到一个世界', '/tryon': '虚拟试穿', '/outfits': '穿搭推荐',
-  '/merchant': '商家后台', '/history': '你的创作记录', '/account': '账号设置',
+  '/merchant': '商家后台', '/history': '你的创作记录', '/account': '账户概览',
   '/appearance': '外观设置',
 };
 
@@ -47,7 +47,9 @@ function CustomerChrome() {
           <AccountAvatar user={account.user} checking={account.checking} onAccount={() => navigate('/account')}
             onLogout={() => { void logoutAccount().catch((err) => setError((err as Error).message)); }} />
         </div></header>
-      <div className="page-title"><div><div className="eyebrow">穿搭 · 试穿 · 人体建模</div><h1>{TITLES[pathname] ?? TITLES['/']}</h1></div></div>
+      <div className={`page-title${pathname === '/account' ? ' account-page-title' : ''}`}><div>
+        {pathname !== '/account' && <div className="eyebrow">穿搭 · 试穿 · 人体建模</div>}
+        <h1>{TITLES[pathname] ?? TITLES['/']}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       <Outlet />
       <footer className="statusbar"><span /><span>ITP STUDIO <i>v0.1</i></span></footer>

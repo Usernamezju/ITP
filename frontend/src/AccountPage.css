@@ -20,3 +20,97 @@
 .account-menu-panel strong { font-size:14px; }
 .account-columns { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
 @media(max-width:760px) { .account-columns { grid-template-columns:minmax(0,1fr); } }
+
+/* Account overview: keep the existing funding and identity workflows together. */
+.account-page { max-width:1160px; }
+.page-title.account-page-title { max-width:1160px; width:100%; margin:0 auto; padding:28px 28px 16px; }
+.account-welcome { color:var(--commerce-text-secondary); font-size:14px; margin:0 0 22px; }
+.account-dashboard { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:22px; }
+.account-dashboard > .commerce-heading,
+.account-dashboard > .commerce-error,
+.account-funds-loading { grid-column:1/-1; order:-1; }
+.account-dashboard > .commerce-heading { font-size:12px; color:var(--commerce-text-secondary); }
+.account-overview { grid-column:1/-1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+.account-overview-card { display:grid; grid-template-columns:56px minmax(0,1fr) 32px; align-content:start; align-items:center; gap:16px 12px; padding:24px; border:1px solid var(--commerce-divider); border-radius:12px; background:var(--commerce-surface); min-width:0; }
+.account-dashboard .wallet-balance { display:grid; align-items:center; background:#fffaf7; border-color:var(--commerce-primary-border); }
+.account-metric-icon { display:grid; place-items:center; width:56px; height:56px; border-radius:16px; }
+.account-metric-icon.balance { background:var(--commerce-primary-soft); color:var(--commerce-primary-text); }
+.account-metric-icon.membership { background:#fff3e5; color:#b85c00; }
+.account-metric-icon.pricing { background:#edf5ff; color:#2366b0; }
+.account-metric-copy { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.account-metric-copy > span { color:var(--commerce-text-secondary); font-size:14px; }
+.account-metric-copy strong { font-size:28px; font-weight:600; line-height:1.25; overflow-wrap:anywhere; }
+.account-dashboard .wallet-balance strong,
+.account-metric-copy .account-price { color:var(--commerce-primary-text); }
+.account-metric-copy .account-price { font-size:23px; }
+.account-metric-more { display:grid; place-items:center; width:32px; min-height:44px; border-radius:6px; color:var(--commerce-text-secondary); }
+.account-metric-more:hover { background:var(--commerce-surface-soft); color:var(--commerce-primary-text); }
+.account-overview-card > .button,
+.account-overview-card > small { grid-column:1/-1; margin:0; }
+.account-overview-card > .button { min-height:44px; }
+.account-overview-card > small { padding-top:2px; }
+.account-dashboard .account-card { max-width:none; margin:0; padding:26px; gap:16px; min-width:0; border-color:var(--commerce-divider); background:var(--commerce-surface); }
+.account-dashboard .account-card h2 { font-size:20px; margin:0; }
+.account-dashboard .account-card h3 { font-size:18px; margin:0; }
+.account-profile-card { grid-column:span 7; order:1; align-self:stretch; }
+.account-profile-form { display:flex; flex-direction:column; gap:18px; }
+.account-card-description { color:var(--commerce-text-secondary); font-size:14px; margin:-8px 0 0; }
+.account-profile-card .account-identity { margin:6px 0; gap:18px; }
+.account-profile-card .account-avatar { width:76px; height:76px; font-size:30px; background:#e5f1ff; color:#2366b0; border:0; }
+.account-profile-card .account-identity > div { min-width:0; }
+.account-identity-name { display:flex; flex-wrap:wrap; align-items:center; gap:8px; overflow-wrap:anywhere; }
+.account-identity-name strong { font-size:18px; }
+.account-display-name { display:block; font-size:14px; overflow-wrap:anywhere; margin-top:6px; }
+.account-role { font-size:12px; background:#edf5ff; color:#2366b0; padding:2px 8px; border-radius:16px; }
+.account-dashboard .text-input { min-height:46px; border-radius:8px; }
+.account-profile-actions { display:grid; grid-template-columns:1.6fr 1fr; gap:12px; margin-top:6px; }
+.account-profile-actions .button { min-height:46px; }
+.account-profile-hint { display:flex; align-items:center; gap:8px; }
+.account-profile-hint svg { flex-shrink:0; }
+.account-password-form { display:flex; flex-direction:column; gap:16px; padding-top:20px; border-top:1px solid var(--commerce-divider); }
+.account-profile-card > .text-button { align-self:flex-start; }
+.account-dashboard .payment-panel { display:contents; }
+.payment-recharge-card { grid-column:span 5; order:1; align-self:stretch; }
+.account-dashboard .payment-amounts button { min-height:44px; min-width:76px; font-size:14px; }
+.account-dashboard .payment-recharge-card > .button { min-height:46px; }
+.account-dashboard .payment-orders { grid-column:span 6; order:2; }
+.account-dashboard .commerce-ledger { grid-column:span 6; order:2; border:1px solid var(--commerce-divider); }
+.account-dashboard .commerce-benefits { grid-column:1/-1; order:3; display:block; }
+.account-dashboard .commerce-benefits summary { font-size:16px; font-weight:500; cursor:pointer; padding:4px 0; }
+.account-dashboard .commerce-benefits summary:focus-visible { outline:2px solid var(--commerce-primary); outline-offset:4px; border-radius:4px; }
+.account-dashboard .commerce-benefits p { margin-top:12px; }
+.account-history-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; padding:14px 0 20px; min-height:210px; }
+.account-history-empty > svg { color:#9299a5; }
+.account-history-empty strong { font-size:16px; font-weight:500; }
+.account-history-empty p { color:var(--commerce-text-secondary); font-size:14px; margin:0; }
+.account-history-empty .button { min-width:160px; margin-top:6px; }
+.account-dashboard button.button.account-outline { color:var(--commerce-primary-text); background:var(--commerce-surface); border-color:var(--commerce-primary); }
+.account-dashboard button.button.account-outline:hover:not(:disabled) { background:var(--commerce-primary-soft); }
+@media(max-width:1100px) {
+  .account-overview-card { padding:20px 16px; grid-template-columns:44px minmax(0,1fr) 24px; gap:14px 8px; }
+  .account-metric-icon { width:44px; height:48px; border-radius:12px; }
+  .account-metric-more { width:24px; }
+  .account-metric-copy strong { font-size:24px; }
+  .account-metric-copy .account-price { font-size:20px; }
+}
+@media(max-width:900px) {
+  .account-overview { grid-template-columns:minmax(0,1fr); gap:12px; }
+  .account-overview-card { grid-template-columns:56px minmax(0,1fr) 44px; padding:20px; }
+  .account-metric-icon { width:56px; height:56px; }
+  .account-metric-more { width:44px; }
+  .account-dashboard { gap:16px; }
+  .account-dashboard .account-card { grid-column:1/-1; padding:22px; }
+  .payment-recharge-card { order:2; }
+  .account-dashboard .payment-orders { order:3; }
+  .account-dashboard .commerce-ledger { order:4; }
+  .account-dashboard .commerce-benefits { order:5; }
+}
+@media(max-width:480px) {
+  .account-dashboard .account-card { padding:20px 16px; }
+  .account-profile-card .account-avatar { width:62px; height:62px; font-size:26px; }
+  .account-profile-card .account-identity { gap:12px; }
+  .account-profile-actions { grid-template-columns:minmax(0,1fr); }
+}
+@media(max-width:760px) {
+  .page-title.account-page-title { padding:22px 16px 12px; }
+}

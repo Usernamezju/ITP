@@ -5,6 +5,19 @@
 菜单、个人资料、修改密码与退出登录。模型 API Key/token 与用户登录令牌是
 不同概念：前者仅由服务端运维管理，客户端没有配置入口。
 
+## 账户概览页面
+
+`/account` 登录后采用三层卡片布局：顶部余额、会员状态和调用价格；中间
+个人资料与充值/会员；下方我的订单与最近资金流水。桌面分栏，手机按顺序
+堆叠，路由、左侧导航和 JWT 会话保持原样。修改密码通过资料卡中的按钮
+展开，提交后仍吊销所有旧登录状态并要求重新登录。
+
+余额、套餐价格、会员生效区间与调用单价均读取服务端，加载或查询失败时
+显示占位和重试提示，不伪造零余额。会员卡只统计当前已生效且未到期的订阅；
+点击详情可展开完整权益和未来续费日期。充值按钮聚焦金额输入，订单与流水
+继续分页查询。没有配置支付渠道时显示说明并禁用订单创建，不承诺未实现的
+线下充值。此次页面调整复用 `CommercePanel` / `PaymentPanel`，无需数据迁移。
+
 ## 存储与迁移
 
 复用 `MerchantStore` 和 `merchants.sqlite3` 中原有 `merchants` 凭据表，增加
@@ -69,3 +82,19 @@ role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。
 （旧 CHECK 重建、备份、幂等、新库）、CLI 白名单、注册仍拒绝 admin，以及
 `/api/admin/*` 的 401/403/禁用账号与只读数据。`frontend/tests/accounts.spec.ts`
 在桌面/手机覆盖头像、注册登录、刷新恢复、资料保存、退出、顾客商家限制与改密。
+
+
+账号概览验证命令：
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --no-sync pytest
+npm run build --prefix frontend
+npm run test:e2e --prefix frontend -- tests/accounts.spec.ts tests/payments.spec.ts tests/routing.spec.ts --output=/tmp/itp-account-overview-results
+```
+
+人工浏览器验收：在 1440×900 和 412×915 下登录 `/account`，核对三张指标卡
+的服务端金额及会员状态，检查桌面中间与底部卡片并排、手机纵向堆叠无溢出。
+点击「立即充值」检查输入焦点，保存资料并重新加载，展开改密后验证密码不一致
+提示及改密重新登录；创建订单后查询服务器状态，再检查流水分页及真实退款。
+生产支付未配置时应显示说明且无法提交订单；钱包读取失败后仍能编辑资料和
+查询订单，并可刷新重试。使用 Tab 检查按钮、输入框与权益折叠区焦点。

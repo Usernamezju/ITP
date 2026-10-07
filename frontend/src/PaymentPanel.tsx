@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock3, CircleAlert, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Clock3, CircleAlert, FileText, RefreshCw } from 'lucide-react';
 import { accountApi } from './accountApi';
 import { api } from './api';
 import { parseYuan, yuanText } from './money';
@@ -118,7 +118,8 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
   const timedOut = active && active.state !== 'paid' && active.expires * 1000 <= Date.now();
 
   return <div className="payment-panel">
-    <h3>充值与会员购买</h3>
+    <section className="account-card payment-recharge-card" aria-label="充值与会员">
+    <h3>充值与会员</h3>
     <div className="payment-fields"><label htmlFor="wallet-recharge-amount">充值金额（元）<input id="wallet-recharge-amount" className="text-input" inputMode="decimal" value={amount}
       placeholder="请输入金额，最多两位小数" onChange={(event) => setAmount(event.target.value)} aria-describedby={error ? 'payment-error' : undefined} /></label>
     <div className="payment-amounts" aria-label="快捷充值金额">{['30', '50', '100'].map((value) => <button key={value} type="button"
@@ -144,6 +145,8 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
         onClick={() => void refresh(true)}>模拟付款（仅开发测试）</button>}
       <small>{active.state === 'paid' ? '支付成功，服务端已确认并更新余额或会员权益。' : '余额与会员仅在服务端核实支付后更新。'}</small>
     </section>}
+    </section>
+    <section className="account-card payment-orders" aria-label="我的订单">
     <div className="commerce-heading"><h3>我的订单</h3><button type="button" className="text-button" disabled={ordersLoading} onClick={reload}>
       <RefreshCw size={14} />刷新订单</button></div>
     {ordersError && <p role="alert" className="commerce-error">{ordersError}</p>}
@@ -153,10 +156,14 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
       <span className="payment-order-title"><span>{order.description}</span><strong>¥{yuanText(order.amount_cents)}</strong></span>
       <OrderStatus order={order} /><small>{new Date(order.created * 1000).toLocaleString()} · {methodNames[order.provider] || '支付渠道'}</small>
     </button>)}</div>
-    {!ordersLoading && !ordersError && !orders.length && <small>暂无订单</small>}
+    {!ordersLoading && !ordersError && !orders.length && <div className="account-history-empty">
+      <FileText size={38} aria-hidden="true" /><strong>暂无订单</strong><p>您还没有创建任何订单</p>
+      <button type="button" className="button account-outline"
+        onClick={() => document.getElementById('wallet-recharge-amount')?.focus()}>去充值</button></div>}
     <div className="commerce-pagination"><button type="button" className="text-button" disabled={ordersLoading || ordersOffset === 0}
       onClick={() => setOrdersOffset((value) => Math.max(0, value - PAGE_SIZE))}>上一页订单</button><span>第 {ordersOffset / PAGE_SIZE + 1} 页</span>
       <button type="button" className="text-button" disabled={ordersLoading || Boolean(ordersError) || orders.length < PAGE_SIZE}
         onClick={() => setOrdersOffset((value) => value + PAGE_SIZE)}>下一页订单</button></div>
+    </section>
   </div>;
 }

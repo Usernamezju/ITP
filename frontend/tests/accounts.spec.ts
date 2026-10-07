@@ -70,7 +70,7 @@ test('avatar opens unified registration and restores the session on reload', asy
   await page.getByRole('button', { name: '注册并登录' }).click();
   await expect(page.getByRole('heading', { name: '个人资料' })).toBeVisible();
   await expect(page.getByText('¥87.65', { exact: true })).toBeVisible();
-  await expect(page.getByText('人体建模：¥23.45 / 次')).toBeVisible();
+  await expect(page.getByText('¥23.45 / 次', { exact: true })).toBeVisible();
   await expect(page.getByText('个性化推荐年会员：¥45.67 / 12 个月')).toBeVisible();
   expect(writes.find((item) => item.path === '/api/auth/register')?.body.role).toBe('customer');
   await page.reload();
@@ -108,16 +108,76 @@ test('password mismatch is local and successful change requires re-login', async
   const writes = await openAccount(page, true);
   await page.getByRole('button', { name: '打开账号菜单' }).click();
   await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await page.getByRole('button', { name: '修改密码', exact: true }).click();
   await page.getByLabel('当前密码').fill('original-password');
   await page.getByLabel('新密码', { exact: true }).fill('second-password');
   await page.getByLabel('确认新密码').fill('different-password');
-  await page.getByRole('button', { name: '修改密码', exact: true }).click();
+  await page.getByRole('button', { name: '确认修改密码', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('两次输入的新密码不一致');
   expect(writes.some((item) => item.path === '/api/account/password')).toBe(false);
   await page.getByLabel('确认新密码').fill('second-password');
-  await page.getByRole('button', { name: '修改密码', exact: true }).click();
+  await page.getByRole('button', { name: '确认修改密码', exact: true }).click();
   await expect(page.getByRole('heading', { name: '登录账号' })).toBeVisible();
   expect(writes.find((item) => item.path === '/api/account/password')?.body).toEqual({
     current_password: 'original-password', new_password: 'second-password',
   });
+});
+
+test('account overview uses live pricing and keeps the reference layout usable on both screens', async ({ page }, testInfo) => {
+  await openAccount(page, true);
+  await page.getByRole('button', { name: '打开账号菜单' }).click();
+  await page.getByRole('menuitem', { name: '账号设置' }).click();
+  await expect(page.getByRole('heading', { name: '账户概览', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: '当前余额', exact: true })).toContainText('¥87.65');
+  await expect(page.getByRole('region', { name: '会员状态', exact: true })).toContainText('未开通');
+  await expect(page.getByRole('region', { name: '调用价格', exact: true })).toContainText('¥23.45 / 次');
+  await expect(page.getByRole('region', { name: '我的订单', exact: true })).toContainText('暂无订单');
+  await expect(page.getByRole('region', { name: '最近资金流水', exact: true })).toContainText('暂无交易');
+  await expect(page.getByRole('button', { name: '创建充值订单' })).toBeDisabled();
+  await expect(page.getByLabel('当前密码')).toHaveCount(0);
+  const balanceIcon = (await page.locator('.wallet-balance .account-metric-icon').boundingBox())!;
+  const balanceCopy = (await page.locator('.wallet-balance .account-metric-copy').boundingBox())!;
+  expect(balanceIcon.x + balanceIcon.width).toBeLessThan(balanceCopy.x);
+  const bounds = await Promise.all(['.account-profile-card', '.payment-recharge-card', '.payment-orders', '.commerce-ledger']
+    .map((selector) => page.locator(selector).boundingBox()));
+  const [profile, recharge, orders, ledger] = bounds.map((box) => box!);
+  if (testInfo.project.name === 'desktop') {
+    expect(Math.abs(profile.y - recharge.y)).toBeLessThan(2);
+    expect(profile.x + profile.width).toBeLessThan(recharge.x);
+    expect(Math.abs(orders.y - ledger.y)).toBeLessThan(2);
+    expect(orders.x + orders.width).toBeLessThan(ledger.x);
+  } else {
+    expect(profile.y + profile.height).toBeLessThan(recharge.y);
+    expect(orders.y + orders.height).toBeLessThan(ledger.y);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.getByRole('button', { name: '立即充值', exact: true }).click();
+  await expect(page.getByLabel('充值金额（元）')).toBeFocused();
+  await page.getByRole('button', { name: '查看会员详情' }).click();
+  await expect(page.getByText('个性化推荐权益：未开通')).toBeVisible();
+  await page.locator('#account-member-details').evaluate((element) => { (element as HTMLDetailsElement).open = false; });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('account-overview.png'), fullPage: true });
+});
+
+test('membership overview distinguishes current rights from expired and future subscriptions', async ({ page }) => {
+  await openAccount(page, true);
+  const now = Math.floor(Date.now() / 1000);
+  let current = false;
+  await page.route('**/api/account/commerce', (route) => route.fulfill({ json: {
+    balance_cents: 8765, entitlements: {}, upload_usage: null,
+    subscriptions: [
+      { id: 'expired', plan_id: 'customer_annual', starts: now - 86400, ends: now - 3600 },
+      { id: 'future', plan_id: 'customer_annual', starts: now + 86400, ends: now + 172800 },
+      ...(current ? [{ id: 'current', plan_id: 'customer_annual', starts: now - 3600, ends: now + 3600 }] : []),
+    ],
+  } }));
+  await page.goto('/account');
+  const membership = page.getByRole('region', { name: '会员状态', exact: true });
+  await expect(membership).toContainText('未开通');
+  await page.getByRole('button', { name: '查看会员详情' }).click();
+  await expect(page.locator('#account-member-details')).toContainText('生效');
+  current = true;
+  await page.getByRole('button', { name: '刷新钱包与流水' }).click();
+  await expect(membership).toContainText('已开通');
 });

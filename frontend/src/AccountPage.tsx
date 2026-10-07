@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { LoaderCircle, LogOut, UserRound } from 'lucide-react';
+import { CircleHelp, LoaderCircle, LogOut, UserRound } from 'lucide-react';
 import { accountApi, logoutAccount, type Account } from './accountApi';
 import { sessionToken } from './session';
 import './AccountPage.css';
@@ -13,6 +13,7 @@ export function AccountPage({ user, onChanged }: { user: Account | null; onChang
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [editingPassword, setEditingPassword] = useState(false);
 
   async function run(action: () => Promise<void>) {
     if (busy) return;
@@ -78,31 +79,44 @@ export function AccountPage({ user, onChanged }: { user: Account | null; onChang
         onChange={(event) => setFields({ ...fields, password: event.target.value })} /></label>
       <button className="button" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" />
         : mode === 'register' ? '注册并登录' : '登录账号'}</button>
-    </form> : <div className="account-columns">
-      <CommercePanel user={user} />
-      <form className="account-card" onSubmit={saveProfile}><h2>个人资料</h2>
+    </form> : <>
+      <p className="account-welcome">欢迎回来，管理您的账户与使用情况</p>
+      <CommercePanel user={user}>
+      <section className="account-card account-profile-card" aria-label="个人资料与账号安全">
+      <form className="account-profile-form" onSubmit={saveProfile}><h2>个人资料</h2>
+        <p className="account-card-description">管理您的个人信息，用于账号识别与联系</p>
         <div className="account-identity"><span className="account-avatar">{user.display_name.slice(0, 1).toUpperCase()}</span>
-          <div><strong>{user.name}</strong><small>{user.role === 'merchant' ? '商家' : '普通顾客'}</small></div></div>
+          <div><div className="account-identity-name"><strong>{user.name}</strong>
+            <small className="account-role">{user.role === 'admin' ? '管理员' : user.role === 'merchant' ? '商家' : '普通用户'}</small></div>
+            <span className="account-display-name">{user.display_name}</span></div></div>
         <label>昵称 / 商家名称<input className="text-input" required maxLength={40} value={profile.display_name}
           onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></label>
         <label>联系方式<input className="text-input" maxLength={80} value={profile.contact}
           onChange={(event) => setProfile({ ...profile, contact: event.target.value })} /></label>
-        <button className="button" disabled={busy}>保存个人资料</button>
-        <button type="button" className="text-button" disabled={busy} onClick={() => void run(async () => {
-          await logoutAccount(); onChanged();
-        })}><LogOut size={15} />退出登录</button>
+        <div className="account-profile-actions"><button className="button primary" disabled={busy}>
+          {busy ? <><LoaderCircle size={15} className="spin" />正在处理…</> : '保存个人资料'}</button>
+          <button type="button" className="button account-outline" disabled={busy}
+            aria-expanded={editingPassword} aria-controls="account-password-form"
+            onClick={() => { setEditingPassword(!editingPassword); setPasswords({ current: '', next: '', again: '' }); }}>
+            {editingPassword ? '收起密码修改' : '修改密码'}</button></div>
+        <small className="account-profile-hint"><CircleHelp size={15} aria-hidden="true" />修改个人资料后将立即生效。</small>
       </form>
-      <form className="account-card" onSubmit={changePassword}><h2>修改密码</h2>
+      {editingPassword && <form id="account-password-form" className="account-password-form" onSubmit={changePassword}><h3>修改密码</h3>
         <label>当前密码<input className="text-input" type="password" required autoComplete="current-password" value={passwords.current}
           onChange={(event) => setPasswords({ ...passwords, current: event.target.value })} /></label>
         <label>新密码<input className="text-input" type="password" required minLength={8} maxLength={128}
           autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })} /></label>
         <label>确认新密码<input className="text-input" type="password" required autoComplete="new-password" value={passwords.again}
           onChange={(event) => setPasswords({ ...passwords, again: event.target.value })} /></label>
-        <button className="button" disabled={busy}>修改密码</button>
+        <button className="button primary" disabled={busy}>确认修改密码</button>
         <small>修改成功后，所有旧登录状态都会失效。</small>
-      </form>
-    </div>}
+      </form>}
+        <button type="button" className="text-button" disabled={busy} onClick={() => void run(async () => {
+          await logoutAccount(); onChanged();
+        })}><LogOut size={15} />退出登录</button>
+      </section>
+      </CommercePanel>
+    </>}
   </main>;
 }
 
