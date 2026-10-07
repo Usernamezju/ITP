@@ -5,6 +5,7 @@ import { AppearancePage } from './AppearancePage';
 import CustomerLayout from './CustomerLayout';
 import { useCustomer } from './customerState';
 import HistoryPage from './HistoryPage';
+import MerchantClickDetailPage from './MerchantClickDetail';
 import MerchantGate from './MerchantGate';
 import { OutfitsPage } from './OutfitsPage';
 import { TryOnPage } from './TryOnPage';
@@ -49,6 +50,10 @@ const router = createBrowserRouter([
       { path: 'tryon', element: <TryOnRoute /> },
       { path: 'outfits', element: <OutfitsRoute /> },
       { path: 'merchant', element: <MerchantGate /> },
+      // The click ranking behind the console's data cards; an address without a
+      // period falls back to the lifetime total.
+      { path: 'merchant/analytics', element: <Navigate to="/merchant/analytics/total" replace /> },
+      { path: 'merchant/analytics/:range', element: <MerchantClickDetailPage /> },
       { path: 'history', element: <HistoryPage /> },
       { path: 'account', element: <AccountRoute /> },
       { path: 'appearance', element: <Navigate to="/account" replace /> },

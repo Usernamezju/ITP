@@ -73,15 +73,26 @@ export function fetchProfile(): Promise<MerchantProfile> {
 }
 
 export type ClickCounts = { today: number; month: number; total: number };
+/** The three periods a merchant can rank products by. */
+export type ClickRange = keyof ClickCounts;
+export const clickRanges: { id: ClickRange; label: string; hint: string }[] = [
+  { id: 'today', label: '今日点击', hint: '按北京时间当天统计' },
+  { id: 'month', label: '本月点击', hint: '按北京时间当月统计' },
+  { id: 'total', label: '累计点击', hint: '全部历史点击' },
+];
 export type MerchantAnalytics = {
   summary: ClickCounts; timezone: string; total: number;
+  /** Echo of the ranking period the server applied, or null for the default list. */
+  rank?: ClickRange | null;
   items: (MerchantGarment & { clicks: ClickCounts })[];
   trend: { date: string; clicks: number }[];
 };
 
-export function fetchAnalytics(offset = 0): Promise<MerchantAnalytics> {
-  return api<MerchantAnalytics>(`/api/merchant/analytics?limit=20&offset=${offset}`,
-    { headers: authHeaders() });
+/** Ordered by total clicks unless a period is given to rank by. */
+export function fetchAnalytics(offset = 0, rank?: ClickRange): Promise<MerchantAnalytics> {
+  const query = new URLSearchParams({ limit: '20', offset: String(offset) });
+  if (rank) query.set('rank', rank);
+  return api<MerchantAnalytics>(`/api/merchant/analytics?${query}`, { headers: authHeaders() });
 }
 
 /**

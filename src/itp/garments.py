@@ -1032,6 +1032,20 @@ class MerchantStore:
             ).fetchall()
         return total, [self._garment_row(row) for row in rows]
 
+    def all_garments(self, merchant_id: str) -> list[dict]:
+        """Every garment of one merchant, newest first.
+
+        Click ranking orders products in memory, so this read must never be a
+        page: a product with no clicks still belongs in the ranking.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id, merchant_id, metrics, status, created, updated, purchase_url FROM garments "
+                "WHERE merchant_id = ? ORDER BY created DESC, id DESC",
+                (merchant_id,),
+            ).fetchall()
+        return [self._garment_row(row) for row in rows]
+
     def list_published_garments(
         self,
         *,

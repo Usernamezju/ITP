@@ -11,6 +11,13 @@ const TITLES: Record<string, string> = {
 
 const railClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'selected' : '');
 
+/** Addresses with parameters of their own still show one stable page title. */
+function titleFor(pathname: string): string {
+  if (TITLES[pathname]) return TITLES[pathname];
+  if (pathname.startsWith('/merchant/analytics')) return '点击数据详情';
+  return TITLES['/'];
+}
+
 /**
  * The customer side of the site: one rail, one top bar and one page title
  * shared by every customer URL.  The shell itself holds no business logic;
@@ -46,7 +53,7 @@ function CustomerChrome() {
         </div></header>
       <div className={`page-title${pathname === '/account' ? ' account-page-title' : ''}`}><div>
         {pathname !== '/account' && <div className="eyebrow">穿搭 · 试穿 · 人体建模</div>}
-        <h1>{TITLES[pathname] ?? TITLES['/']}</h1></div></div>
+        <h1>{titleFor(pathname)}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       <Outlet />
       {pathname !== '/outfits' && <footer className="statusbar"><span /><span>ITP STUDIO <i>v0.1</i></span></footer>}

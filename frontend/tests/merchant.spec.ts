@@ -73,7 +73,8 @@ const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR42mP8z8DAwMgABIxgCoQBAF8kAgHh2GJ3AAAAAElFTkSuQmCC',
   'base64');
 
-type Recorded = { method: string; path: string; body: string };
+type Recorded = { method: string; path: string; query: string; body: string };
+type Clicks = { today: number; month: number; total: number };
 
 /**
  * Serves the built bundle with a mocked merchant API and records every call, so
@@ -81,6 +82,8 @@ type Recorded = { method: string; path: string; body: string };
  */
 async function openConsole(page: Page, state: {
   signedIn?: boolean; goods?: unknown[]; looks?: unknown[];
+  /** Clicks the mock analytics route reports, keyed by product id. */
+  clicks?: Record<string, Clicks>;
   /** Answer the AI import route with this Chinese failure instead. */
   importError?: string;
 } = {}) {
@@ -100,9 +103,12 @@ async function openConsole(page: Page, state: {
 
   await page.route('**/*', async (route) => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const pathname = url.pathname;
     const method = request.method();
-    if (pathname.startsWith('/api/')) calls.push({ method, path: pathname, body: request.postData() || '' });
+    if (pathname.startsWith('/api/')) calls.push({
+      method, path: pathname, query: url.search, body: request.postData() || '',
+    });
 
     if (pathname === '/api/capabilities') {
       await route.fulfill({ json: { geometry: false, pose: false, segmentation: false,
@@ -132,10 +138,21 @@ async function openConsole(page: Page, state: {
     } else if (pathname === '/api/merchant/me') {
       await route.fulfill({ json: { ...profile, garment_count: goods.length } });
     } else if (pathname === '/api/merchant/analytics') {
-      await route.fulfill({ json: { summary: { today: 0, month: 0, total: 0 },
-        timezone: 'Asia/Shanghai', total: goods.length, items: goods.map((item) => ({
-          ...(item as object), clicks: { today: 0, month: 0, total: 0 },
-        })), trend: [] } });
+      // The same route answers the overview and the per-period ranking, which
+      // is what the data cards and the detail page both read.
+      const rank = url.searchParams.get('rank');
+      const limit = Number(url.searchParams.get('limit') || 20);
+      const offset = Number(url.searchParams.get('offset') || 0);
+      const zero: Clicks = { today: 0, month: 0, total: 0 };
+      const items = goods.map((item) => ({ ...(item as object),
+        clicks: state.clicks?.[(item as { id: string }).id] ?? zero }));
+      const summary = items.reduce((total, item) => ({
+        today: total.today + item.clicks.today, month: total.month + item.clicks.month,
+        total: total.total + item.clicks.total,
+      }), { ...zero });
+      if (rank) items.sort((left, right) => right.clicks[rank as keyof Clicks] - left.clicks[rank as keyof Clicks]);
+      await route.fulfill({ json: { summary, rank, timezone: 'Asia/Shanghai',
+        total: goods.length, items: items.slice(offset, offset + limit), trend: [] } });
     } else if (pathname === '/api/merchant/login' && method === 'POST') {
       await route.fulfill({ json: { access_token: 'test-token', token_type: 'bearer',
         expires_in: 43200 } });
@@ -173,15 +190,14 @@ async function openConsole(page: Page, state: {
       };
       looks.unshift(created);
       await route.fulfill({ status: 201, json: created });
-    } else if (pathname === '/') {
-      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     } else if (pathname.startsWith('/assets/')) {
       const name = pathname.slice('/assets/'.length);
       if (!/^[\w.-]+$/.test(name)) { await route.fulfill({ status: 404 }); return; }
       await route.fulfill({ body: await readFile(`${dist}/assets/${name}`),
         contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript' });
     } else {
-      await route.fulfill({ status: 404 });
+      // The server hands the app itself to any page URL, exactly like the real one.
+      await route.fulfill({ body: await readFile(`${dist}/index.html`), contentType: 'text/html' });
     }
   });
 
@@ -211,6 +227,50 @@ test('signing in opens the shop with its goods and their size ranges', async ({ 
   await expect(row).toContainText('适合身高 158–176 · 适合胸围 86–96');
   await expect(row.locator('.merchant-status')).toHaveText('已发布');
   expect(writes(calls, '/api/merchant/login')).toHaveLength(1);
+});
+
+test('a data card opens the product ranking of its own period', async ({ page }) => {
+  const calls = await openConsole(page, { clicks: {
+    g1: { today: 2, month: 5, total: 9 }, g2: { today: 0, month: 1, total: 3 },
+  } });
+  await page.getByRole('button', { name: /今日点击 2/ }).click();
+
+  await expect(page).toHaveURL(/\/merchant\/analytics\/today$/);
+  await expect(page.getByRole('heading', { name: '点击数据详情' })).toBeVisible();
+  const rows = page.locator('.merchant-click-list > li');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('细罗纹半高领针织');
+  await expect(rows.first().locator('.merchant-click-count strong')).toHaveText('2');
+  await expect(rows.first().locator('.merchant-click-other')).toContainText('累计 9');
+  // The ranking came from the existing analytics route, marked with its period.
+  const ranked = calls.filter((call) => call.path === '/api/merchant/analytics' && call.query.includes('rank=today'));
+  expect(ranked.length).toBeGreaterThan(0);
+  expect(ranked[ranked.length - 1].query).toContain('offset=0');
+
+  // The current period is marked, and another card switches the ranking.
+  await expect(page.getByRole('button', { name: /今日点击 2/ })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: /累计点击 12/ }).click();
+  await expect(page).toHaveURL(/\/merchant\/analytics\/total$/);
+  await expect(rows.first().locator('.merchant-click-count strong')).toHaveText('9');
+
+  await page.getByRole('link', { name: /返回数据概览/ }).click();
+  await expect(page).toHaveURL(/\/merchant$/);
+  await expect(page.getByRole('heading', { name: '数据概览' })).toBeVisible();
+});
+
+test('an address without a period falls back to the lifetime ranking', async ({ page }) => {
+  await openConsole(page);
+  await page.goto('/merchant/analytics');
+  await expect(page).toHaveURL(/\/merchant\/analytics\/total$/);
+  await expect(page.getByRole('heading', { name: '点击数据详情' })).toBeVisible();
+});
+
+test('a ranking without products explains what will appear there', async ({ page }) => {
+  await openConsole(page, { goods: [] });
+  await page.getByRole('button', { name: /累计点击 0/ }).click();
+  await expect(page.getByRole('heading', { name: '还没有商品' })).toBeVisible();
+  await expect(page.getByText('导入商品并设置购买链接后')).toBeVisible();
+  await expect(page.locator('.merchant-click-list')).toHaveCount(0);
 });
 
 test('an out-of-range fit range is refused before any request', async ({ page }) => {

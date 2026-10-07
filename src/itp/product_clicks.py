@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 import sqlite3
 import time
+from typing import Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -103,17 +104,27 @@ def click_router(merchants):
     @router.get("/api/merchant/analytics")
     def analytics(garment_id: str | None = Query(None),
                   limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0),
-                  days: int = Query(14, ge=1, le=31), merchant: dict = Depends(current_merchant)):
+                  days: int = Query(14, ge=1, le=31),
+                  rank: Literal["today", "month", "total"] | None = Query(None),
+                  merchant: dict = Depends(current_merchant)):
         if garment_id and not merchants.garment_for(merchant["id"], garment_id):
             raise HTTPException(404, "商品不存在")
         result = merchants.clicks.counts(merchant["id"], garment_id=garment_id, days=days)
         if garment_id:
             total, garments = 1, [merchants.garment_for(merchant["id"], garment_id)]
+        elif rank:
+            # The detail page ranks one period: every product of the shop takes
+            # part, including those without a click, and ties keep newest first.
+            counted = result["counts"]
+            ranked = merchants.all_garments(merchant["id"])
+            ranked.sort(key=lambda item: (-counted.get(item["id"], {}).get(rank, 0),
+                                          -counted.get(item["id"], {}).get("total", 0)))
+            total, garments = len(ranked), ranked[offset:offset + limit]
         else:
             total, garments = merchants.list_garments(merchant["id"], limit=limit, offset=offset)
         gallery = merchants.images_for_many([item["id"] for item in garments])
         return {"timezone": result["timezone"], "summary": result["summary"],
-                "trend": result["trend"], "total": total, "items": [
+                "trend": result["trend"], "total": total, "rank": rank, "items": [
                     {**public_garment(item, gallery[item["id"]]),
                      "clicks": result["counts"].get(item["id"], {"today": 0, "month": 0, "total": 0})}
                     for item in garments]}

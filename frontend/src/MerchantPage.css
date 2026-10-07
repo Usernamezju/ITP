@@ -229,9 +229,28 @@
 .merchant-analytics>[role=alert] { margin-top: 12px; font-size: 13px; color: var(--commerce-danger); }
 .merchant-analytics>[role=status] { padding: 20px 0; }
 .merchant-kpis { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 16px 0 12px; }
-.merchant-kpi { padding: 18px; border: 1px solid var(--commerce-divider); border-radius: 10px; background: var(--commerce-surface-soft); min-width: 0; }
+.merchant-kpi { display: block; padding: 18px; border: 1px solid var(--commerce-divider); border-radius: 10px; background: var(--commerce-surface-soft); min-width: 0; text-align: left; color: inherit; }
 .merchant-kpi span { display: block; color: var(--theme-muted); font-size: 14px; }
 .merchant-kpi strong { display: block; margin-top: 8px; font-size: 28px; font-weight: 600; color: var(--commerce-primary-text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+/* Each data card opens the product ranking of its own period. */
+.merchant-kpi small { display: flex; align-items: center; gap: 3px; margin-top: 8px; font-size: 12px; color: var(--theme-muted); }
+.merchant-kpi:hover:not(:disabled), .merchant-kpi:focus-visible { border-color: var(--commerce-primary-border); background: var(--commerce-primary-soft); filter: none; }
+.merchant-kpi.active { border-color: var(--commerce-primary); background: var(--commerce-primary-soft); }
+.merchant-kpi.active small { color: var(--commerce-primary-text); }
+/* One ranked product per row: photo, name, that period's clicks. */
+.merchant-click-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 4px; padding: 0; list-style: none; }
+.merchant-click-list>li { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--theme-border); border-radius: 10px; background: var(--theme-surface); min-width: 0; }
+.merchant-click-rank { flex: none; width: 26px; text-align: center; font-size: 14px; font-weight: 600; color: var(--theme-muted); font-variant-numeric: tabular-nums; }
+.merchant-click-count { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 84px; }
+.merchant-click-count strong { font-size: 24px; font-weight: 600; color: var(--commerce-primary-text); font-variant-numeric: tabular-nums; }
+.merchant-click-count small, .merchant-click-other { font-size: 12px; color: var(--theme-muted); }
+.merchant-click-other { flex: none; display: flex; flex-direction: column; gap: 2px; min-width: 104px; text-align: right; }
+.merchant-detail-bar .merchant-identity { flex: 1; min-width: 0; }
+@media(max-width:760px) {
+  .merchant-click-list>li { flex-wrap: wrap; }
+  .merchant-click-count { margin-left: auto; }
+  .merchant-click-other { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+}
 .merchant-analytics>small { font-size: 12px; color: var(--theme-muted); line-height: 1.6; }
 .merchant-analytics details { margin-top: 16px; border-top: 1px solid var(--theme-border); }
 .merchant-analytics summary { padding: 14px 0; color: var(--theme-text); font-size: 14px; }

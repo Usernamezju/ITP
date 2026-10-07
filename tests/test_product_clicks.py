@@ -56,6 +56,35 @@ def test_hidden_missing_or_linkless_products_do_not_record(env):
     assert client.get('/api/merchant/analytics', headers=auth(token)).json()['summary']['total'] == 0
 
 
+def test_ranked_detail_sorts_by_period_pages_and_keeps_products_without_clicks(env):
+    client, _, _ = env
+    token = token_for(client)
+    quiet = product(client, token, name='零点击')
+    popular = product(client, token, name='两点击')
+    middle = product(client, token, name='一点击')
+    for _ in range(2):
+        client.post(f"/api/garments/{popular['id']}/clicks")
+    client.post(f"/api/garments/{middle['id']}/clicks")
+    theirs = product(client, token_for(client, 'other-shop'), name='别家商品')
+    client.post(f"/api/garments/{theirs['id']}/clicks")
+
+    page = client.get('/api/merchant/analytics', headers=auth(token),
+                      params={'rank': 'total', 'limit': 2}).json()
+    assert page['rank'] == 'total' and page['total'] == 3
+    assert [(item['id'], item['clicks']['total']) for item in page['items']] == [
+        (popular['id'], 2), (middle['id'], 1)]
+    tail = client.get('/api/merchant/analytics', headers=auth(token),
+                      params={'rank': 'total', 'limit': 2, 'offset': 2}).json()
+    assert [item['id'] for item in tail['items']] == [quiet['id']]
+    assert tail['items'][0]['clicks'] == {'today': 0, 'month': 0, 'total': 0}
+    beyond = client.get('/api/merchant/analytics', headers=auth(token),
+                        params={'rank': 'today', 'offset': 10}).json()
+    assert beyond['items'] == [] and beyond['total'] == 3
+    assert client.get('/api/merchant/analytics', headers=auth(token),
+                      params={'rank': 'week'}).status_code == 422
+    assert client.get('/api/merchant/analytics', params={'rank': 'today'}).status_code == 401
+
+
 def test_click_store_error_is_a_recoverable_api_failure(env, monkeypatch):
     client, _, _ = env
     def unavailable(_):

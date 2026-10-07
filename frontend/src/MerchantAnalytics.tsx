@@ -1,7 +1,10 @@
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchAnalytics, type MerchantAnalytics as Analytics } from './merchantApi';
+import { useNavigate } from 'react-router-dom';
+import { clickRanges, fetchAnalytics, type MerchantAnalytics as Analytics } from './merchantApi';
 
 export function MerchantAnalytics({ revision }: { revision: string }) {
+  const navigate = useNavigate();
   const [data, setData] = useState<Analytics | null>(null);
   const [error, setError] = useState('');
   const [offset, setOffset] = useState(0);
@@ -21,11 +24,15 @@ export function MerchantAnalytics({ revision }: { revision: string }) {
         onClick={() => setRefresh((value) => value + 1)}>刷新点击数据</button></div>
     {error && <p role="alert">点击数据读取失败：{error}，请重试。</p>}
     {!data ? <p role="status">{loading ? '正在读取点击数据…' : '暂时无法读取统计'}</p> : <>
-      <div className="merchant-kpis">{([
-        ['今日点击', data.summary.today], ['本月点击', data.summary.month], ['累计点击', data.summary.total],
-      ] as const).map(([label, count]) => <div className="merchant-kpi" key={label}>
-        <span>{label}</span><strong>{count.toLocaleString('zh-CN')}</strong></div>)}</div>
-      <small>按北京时间统计购买入口点击次数，不代表成交或独立访客。</small>
+      <div className="merchant-kpis">{clickRanges.map((range) =>
+        <button type="button" className="merchant-kpi" key={range.id}
+          aria-label={`${range.label} ${data.summary[range.id].toLocaleString('zh-CN')}，查看该维度的商品点击排行`}
+          onClick={() => navigate(`/merchant/analytics/${range.id}`)}>
+          <span>{range.label}</span>
+          <strong>{data.summary[range.id].toLocaleString('zh-CN')}</strong>
+          <small>{range.hint} <ChevronRight size={12} aria-hidden="true" /></small>
+        </button>)}</div>
+      <small>按北京时间统计购买入口点击次数，不代表成交或独立访客；点击任一指标查看该维度的商品排行。</small>
       <details><summary>查看商品点击明细与近 14 天趋势</summary>
         <div className="merchant-analytics-table"><table><caption>商品点击明细</caption>
           <thead><tr><th>商品</th><th>今日</th><th>本月</th><th>累计</th><th>购买链接</th></tr></thead>
