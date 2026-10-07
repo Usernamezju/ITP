@@ -705,7 +705,8 @@ function ManualQrFields({ manual, busy, onDocument, onChanged, onError, onNotice
   function upload(channel: string, file: File | undefined) {
     if (!file) return;
     const body = new FormData();
-    body.append('channel', channel);
+    // The route names channels without the provider prefix: wechat / alipay.
+    body.append('channel', channel.replace('manual_', ''));
     body.append('file', file);
     void run(async () => {
       setUploading(channel);

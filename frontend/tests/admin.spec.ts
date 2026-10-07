@@ -214,14 +214,20 @@ async function openAdmin(page: Page, options: Options = {}) {
       calls.push(path);
       await route.fulfill({ json: options.paymentConfig(route.request().postDataJSON()) });
     } else if (options.manual && path === '/api/admin/payments/manual/qr') {
-      // The real route is multipart: the payload carries the channel name.
+      // The real route is multipart and only accepts the bare channel name,
+      // so a wrong field value is answered exactly as the server answers it.
       calls.push(path);
-      if ((route.request().postData() || '').includes('manual_alipay')) {
+      const payload = route.request().postData() || '';
+      const channel = /name="channel"\r?\n\r?\n([^\r\n]+)/.exec(payload)?.[1] ?? '';
+      if (channel === 'alipay') {
         manual.channels.manual_alipay = { label: '支付宝', qr_set: true, updated: 1790671818,
           qr_key: 'b'.repeat(32), ready: manual.enabled, reason: '' };
-      } else {
+      } else if (channel === 'wechat') {
         manual.channels.manual_wechat = { label: '微信', qr_set: true, updated: 1790671818,
           qr_key: 'a'.repeat(32), ready: manual.enabled, reason: '' };
+      } else {
+        await route.fulfill({ status: 422, json: { detail: '只能上传微信或支付宝收款码' } });
+        return;
       }
       await route.fulfill({ json: { ...payments, manual } });
     } else if (options.manual && path === '/api/admin/payments/config') {
