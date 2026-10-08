@@ -1360,7 +1360,8 @@ def create_app(
         peer = request.client.host if request.client else "unknown"
         if peer in {"127.0.0.1", "::1"}:
             peer = request.headers.get("x-forwarded-for", peer).split(",")[-1].strip()
-        auth_limiter.check(("login", peer, body.name.strip()), attempts=8, seconds=300)
+        auth_limiter.check(("login", peer, body.name.strip()),
+                           attempts=settings.auth_login_per_5min, seconds=300)
         merchant = merchants.merchant_by_name(body.name.strip())
         stored = merchant["password_hash"] if merchant else DUMMY_PASSWORD_HASH
         accepted = verify_password(body.password, stored)
@@ -1454,7 +1455,8 @@ def create_app(
         peer = request.client.host if request.client else "unknown"
         if peer in {"127.0.0.1", "::1"}:
             peer = request.headers.get("x-forwarded-for", peer).split(",")[-1].strip()
-        auth_limiter.check(("register", peer), attempts=10, seconds=3600)
+        auth_limiter.check(("register", peer),
+                           attempts=settings.auth_register_per_hour, seconds=3600)
         proof = None
         if body.phone:
             from itp.phones import mainland_phone

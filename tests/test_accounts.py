@@ -161,3 +161,29 @@ def test_exact_expiry_and_non_ascii_tokens_are_rejected():
         decode_token(SECRET, token, now=10 + lifetime)
     with pytest.raises(ValueError):
         decode_token(SECRET, "é.é.é")
+
+
+def test_the_registration_budget_is_a_setting_not_a_constant(tmp_path):
+    """A shared address must be able to onboard more than a handful of people.
+
+    The budget slows down automated account creation; it is not meant to bound
+    a platform where everyone behind one office router or one reverse proxy
+    looks like a single peer, so an operator can move it either way.
+    """
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data", jwt_secret=SECRET,
+                        auth_register_per_hour=3)
+    app = create_app(settings, start_worker=False, config_path=tmp_path / ".env")
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        for index in range(3):
+            made = client.post("/api/auth/register", json={
+                "name": f"person{index}", "display_name": "测试账号", "password": PASSWORD})
+            assert made.status_code == 201, made.text
+        assert client.post("/api/auth/register", json={
+            "name": "person4", "display_name": "测试账号",
+            "password": PASSWORD}).status_code == 429
+
+
+def test_the_default_registration_budget_fits_a_shared_office(tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data", jwt_secret=SECRET)
+    assert settings.auth_register_per_hour >= 30
+    assert settings.auth_login_per_5min == 8

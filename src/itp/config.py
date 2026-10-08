@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     sms_endpoint: str = ""
     sms_api_key: SecretStr = SecretStr("")
     merchant_token_hours: int = Field(default=12, ge=1, le=720)
+    # Per-peer budgets for the two unauthenticated account routes. They exist to
+    # slow down account creation and password guessing, not to bound the
+    # platform, so the ceiling is set where a real queue of people signing up
+    # from one office or one reverse proxy still fits. An operator who wants the
+    # harder line can lower it; the browser acceptance suite, which registers
+    # more than a dozen accounts per run, can raise it.
+    auth_register_per_hour: int = Field(default=60, ge=1, le=10000)
+    auth_login_per_5min: int = Field(default=8, ge=1, le=10000)
     merchant_quota: int = Field(default=200, ge=0, le=100000)
     merchant_free_upload_limit: int = Field(default=10, ge=0, le=100000)
     demo_enabled: bool = False

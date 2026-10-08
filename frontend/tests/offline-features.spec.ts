@@ -112,7 +112,7 @@ test('old provider error displays a useful explanation', async ({ page }) => {
   await expect(page.getByText(/服务未开通或计费状态异常/)).toBeVisible();
 });
 
-test('a failed rig step keeps generated models visible as partial success', async ({ page }) => {
+test('a partly finished task from an older record still shows what it produced', async ({ page }) => {
   await openStudio(page, [{
     id: 'c'.repeat(32), name: '已生成角色', state: 'failed', created: 1790671818,
     error: '腾讯云错误 InvalidParameter.InvalidParameter：请求参数不被接受；请核对图片、模型版本和生成选项；RequestId=rig-request',
@@ -127,8 +127,10 @@ test('a failed rig step keeps generated models visible as partial success', asyn
   await expect(page.getByRole('button', { name: /已生成角色/ }).getByText('部分完成')).toBeVisible();
   await page.getByRole('button', { name: /已生成角色/ }).click();
   await expect(page.getByLabel('资产生成参数')).toContainText('1,500,000');
-  await expect(page.getByLabel('资产生成参数')).toContainText('自动绑骨开启');
   await expect(page.getByLabel('资产生成参数')).toContainText('混元生3D Pro · 版本未记录');
+  // Retopology, texturing, rigging and FBX export were removed from the
+  // pipeline, so a record that still carries them does not report them.
+  await expect(page.getByLabel('资产生成参数')).not.toContainText('自动绑骨');
   await expect(page.getByText('已完成几何生成、PBR 纹理，自动绑骨未完成。已有产物仍可预览、下载。')).toBeVisible();
   await expect(page.getByText(/绑骨接口未接受输入模型/)).toBeVisible();
   // The file now comes out of this browser, not from a server route.
@@ -137,7 +139,7 @@ test('a failed rig step keeps generated models visible as partial success', asyn
   await expect(download).toHaveAttribute('href', /^blob:/);
 });
 
-test('asset page shows saved generation model and processing options', async ({ page }) => {
+test('asset page shows the saved generation model and the parameters that remain', async ({ page }) => {
   await openStudio(page, [{
     id: 'f'.repeat(32), name: '新资产', state: 'succeeded', created: 1790671818, error: null,
     request: { front: 'a'.repeat(32), pose_mode: 'a-pose', topology: true,
@@ -150,9 +152,11 @@ test('asset page shows saved generation model and processing options', async ({ 
   const details = page.getByLabel('资产生成参数');
   await expect(details).toContainText('500,000');
   await expect(details).toContainText('A-Pose');
-  await expect(details).toContainText('智能拓扑开启');
-  await expect(details).toContainText('PBR 纹理关闭');
-  await expect(details).toContainText('自动绑骨关闭');
   await expect(details).toContainText('混元生3D Pro · 3.1');
   await expect(details).toContainText('qwen-image-edit-plus-2025-12-15');
+  // This record says it had retopology on, because records written before the
+  // change say things the pipeline no longer does; none of it is displayed.
+  await expect(details).not.toContainText('智能拓扑');
+  await expect(details).not.toContainText('PBR 纹理');
+  await expect(details).not.toContainText('FBX');
 });
