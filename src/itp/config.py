@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     merchant_quota: int = Field(default=200, ge=0, le=100000)
     merchant_free_upload_limit: int = Field(default=10, ge=0, le=100000)
     demo_enabled: bool = False
+    private_asset_quota_mb: int = Field(default=500, ge=150, le=10000)
+    private_asset_retention_days: int = Field(default=365, ge=30, le=3650)
     merchant_free_period_months: int = Field(default=1, ge=1, le=120)
     customer_membership_price_cents: int = Field(default=3000, ge=0, le=10**12)
     model_price_cents: int = Field(default=1500, ge=0, le=10**12)

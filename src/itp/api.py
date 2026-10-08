@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -342,6 +343,11 @@ def create_app(
     tryon_worker = TryOnWorker(store, tryons, settings)
     face_jobs = PrivateFaceStore()
     face_worker = FaceRefineWorker(store, face_jobs, settings)
+    from itp.private_assets import PrivateAssets, private_router
+    vault = PrivateAssets(settings)
+    store.archive = vault
+    tryons.archive = lambda item: vault.archive_task(item, "tryon")
+    face_jobs.archive = lambda item: vault.archive_task(item, "face")
     merchants = MerchantStore(settings.data_dir, settings)
     pipeline.commerce = merchants.commerce
     avatars = AvatarStore(settings.data_dir / "avatars")
@@ -355,7 +361,11 @@ def create_app(
     janitor_stop = threading.Event()
 
     def janitor():
+        last_private_cleanup = 0
         while not janitor_stop.wait(1):
+            if time.time() - last_private_cleanup >= 3600:
+                vault.cleanup()
+                last_private_cleanup = time.time()
             for task_id in store.reap(settings.task_timeout_seconds):
                 merchants.commerce.finish_model(task_id, succeeded=False, valid_result=False)
                 tryons.delete(task_id)
@@ -422,6 +432,23 @@ def create_app(
     app.state.settings = settings
     app.state.payments = PaymentService(merchants, settings, transport=payment_transport)
     app.state.product_ai = product_ai
+    app.state.private_assets = vault
+    def stop_private_tasks(owner):
+        for task in [*store.jobs(owner_id=owner), *tryons.list(owner), *face_jobs.list(owner)]:
+            store.cancel(task["id"])
+            if task["state"] not in {"succeeded", "ready", "failed", "rejected", "cancelled"}:
+                task["state"] = "cancelled"
+                if store.job(task["id"]):
+                    store.save_job(task)
+                    merchants.commerce.finish_model(task["id"], succeeded=False, valid_result=False)
+                elif tryons.get(task["id"]):
+                    tryons.save(task)
+                else:
+                    face_jobs.save(task)
+            store.acknowledge(task["id"], owner)
+            tryons.delete(task["id"])
+            face_jobs.delete(task["id"])
+    app.include_router(private_router(vault, stop_private_tasks))
     from itp.phones import phone_router
     app.include_router(phone_router(merchants))
     from itp.benefits import benefits_router
@@ -498,7 +525,7 @@ def create_app(
         if request.method == "POST" and is_upload and size is None:
             return JSONResponse({"detail": "上传图片需要 Content-Length 请求头"}, status_code=411)
         if size:
-            temporary = request.url.path in {"/api/model-assets", "/api/outfits/recommend"}
+            temporary = request.url.path in {"/api/model-assets", "/api/outfits/recommend"} or request.url.path.startswith("/api/account/storage/records/")
             limit = MODEL_BODY_LIMIT if temporary else (
                 MERCHANT_BODY_LIMIT if is_upload else DEFAULT_BODY_LIMIT)
             if not size.isdigit() or int(size) > limit:
@@ -540,6 +567,7 @@ def create_app(
             "model": current.tencent_model,
             "pose_model": current.pose_model,
             "max_upload_mb": 10,
+            "private_storage": True,
         }
 
     @app.get("/api/tryon-providers/flux-klein/health")

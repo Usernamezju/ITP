@@ -1,6 +1,7 @@
 /** Customer data belongs to this browser, partitioned by account identity. */
 import { sessionToken } from './session';
 import type { Asset } from './api';
+import { syncRecord } from './cloudStorage';
 
 type LocalRecord = { key: string; namespace: string; id: string; value: unknown; blob?: Blob };
 const urls = new Map<string, string>();
@@ -68,7 +69,7 @@ export function localAsset(id: string): Asset | undefined {
   return { ...asset, url: localFileUrl(id) ?? '' };
 }
 
-export async function saveLocal<T>(id: string, value: T, blob?: Blob, namespace = dataNamespace()): Promise<T> {
+export async function saveLocal<T>(id: string, value: T, blob?: Blob, namespace = dataNamespace(), sync = true): Promise<T> {
   const database = await db();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction('records', 'readwrite');
@@ -83,7 +84,19 @@ export async function saveLocal<T>(id: string, value: T, blob?: Blob, namespace 
       urls.set(id, URL.createObjectURL(blob));
     }
   }
+  if (sync) await syncRecord(id, value, blob, namespace);
   return value;
+}
+
+/** Existing browser data is uploaded only after the caller's explicit confirmation. */
+export async function migrateLocalData(): Promise<number> {
+  const namespace = dataNamespace();
+  const saved = await records(namespace);
+  for (const item of saved) {
+    if (namespace !== dataNamespace()) throw new Error('账号已切换，请重新确认迁移');
+    await syncRecord(item.id, item.value, item.blob, namespace);
+  }
+  return saved.length;
 }
 
 export async function localBlob(id: string, namespace = dataNamespace()): Promise<Blob | undefined> {

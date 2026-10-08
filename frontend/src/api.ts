@@ -8,6 +8,7 @@ export type Asset = {
 };
 export type TryOnProvider = 'seedream' | 'flux' | 'flux_max' | 'flux_klein' | 'flux_klein_9b' | 'gpt_image';
 export type Capabilities = {
+  private_storage?: boolean;
   geometry: boolean; pose: boolean; segmentation: boolean;
   tryon: boolean; tryon_model: string;
   tryon_providers: Record<TryOnProvider, boolean>;

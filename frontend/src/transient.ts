@@ -8,7 +8,7 @@
  * sends is a temporary server id the server does not keep.
  */
 import { api, fetchBlob, type Asset, type Job, type TryOnJob } from './api';
-import { localAsset, localBlob, localValue, saveLocal } from './localData';
+import { dataNamespace, localAsset, localBlob, localValue, saveLocal } from './localData';
 
 /** States the server has finished with: its files can be released. */
 export const TERMINAL = new Set(['succeeded', 'failed', 'rejected', 'ready']);
@@ -52,13 +52,21 @@ export async function uploadEach(ids: string[]): Promise<Asset[]> {
 
 /** Save one server result in this browser and return its new local id. */
 export async function localize(serverId: string, name?: string): Promise<string> {
+  const namespace = dataNamespace();
   const cached = localIds.get(serverId);
   if (cached && localAsset(cached)) return cached;
-  const asset = await api<Asset>(`/api/assets/${serverId}`);
-  const blob = await fetchBlob(`/api/assets/${serverId}/file`);
-  const id = crypto.randomUUID().replace(/-/g, '');
-  await saveLocal(id, { ...asset, url: '', name } as Asset, blob);
-  return remember(serverId, id);
+  if (localAsset(serverId)) return remember(serverId, serverId);
+  let asset: Asset; let blob: Blob;
+  try {
+    asset = await api<Asset>(`/api/assets/${serverId}`);
+    blob = await fetchBlob(`/api/assets/${serverId}/file`);
+  } catch {
+    asset = await api<Asset>(`/api/account/storage/asset/${serverId}`);
+    blob = await fetchBlob(`/api/account/storage/asset/${serverId}/file`);
+  }
+  if (namespace !== dataNamespace()) throw new Error('账号已切换，停止保存原账号的数据');
+  await saveLocal(serverId, { ...asset, id: serverId, url: '', name } as Asset, blob, namespace);
+  return remember(serverId, serverId);
 }
 
 /** Tell the server this browser has the results; it drops its own copies. */
@@ -89,8 +97,10 @@ export const jobRecord = (jobId: string) => `job:${jobId}`;
  * handed back from the cache instead of being downloaded again.
  */
 export async function saveJob(job: Job): Promise<LocalJob> {
+  const namespace = dataNamespace();
   const previous = localValue<LocalJob | undefined>(jobRecord(job.id), undefined);
-  const front = localIdOf(job.request.front) ?? previous?.request.front ?? '';
+  const front = localIdOf(job.request.front) ?? previous?.request.front
+    ?? (localAsset(job.request.front) ? job.request.front : '');
   const reference
     = localIdOf(job.request.pose_reference) ?? previous?.request.pose_reference ?? null;
   const artifacts: LocalJob['artifacts'] = [];
@@ -103,7 +113,8 @@ export async function saveJob(job: Job): Promise<LocalJob> {
     ...job, request: { ...job.request, front, pose_reference: reference },
     artifacts, pose_asset: pose, saved: true,
   };
-  await saveLocal(jobRecord(job.id), saved);
+  if (namespace !== dataNamespace()) throw new Error('账号已切换，停止保存任务');
+  await saveLocal(jobRecord(job.id), saved, undefined, namespace);
   return saved;
 }
 
@@ -119,11 +130,13 @@ export const tryOnRecord = (id: string) => `tryon:${id}`;
 
 /** Keep every generated view of one try-on in this browser. Idempotent. */
 export async function saveTryOn(job: TryOnJob): Promise<LocalTryOn> {
+  const namespace = dataNamespace();
   const results: Record<string, string> = {};
   for (const [view, assetId] of Object.entries(job.results || {})) {
     results[view] = await localize(assetId);
   }
   const saved: LocalTryOn = { ...job, results, saved: true };
-  await saveLocal(tryOnRecord(job.id), saved);
+  if (namespace !== dataNamespace()) throw new Error('账号已切换，停止保存试穿任务');
+  await saveLocal(tryOnRecord(job.id), saved, undefined, namespace);
   return saved;
 }

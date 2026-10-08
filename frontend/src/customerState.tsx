@@ -6,6 +6,7 @@ import { useAccountSession } from './accountApi';
 import { applyTheme, loadTheme, type Theme } from './theme';
 import { hydrateLocalData, localAsset, localRecords } from './localData';
 import { sessionToken } from './session';
+import { configureCloudStorage, restoreCloudData } from './cloudStorage';
 import { TERMINAL, acknowledge, saveJob, type LocalJob } from './transient';
 
 /**
@@ -111,6 +112,7 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
     async function refresh() {
       try {
         const capabilities = await api<Capabilities>('/api/capabilities');
+        configureCloudStorage(capabilities.private_storage === true);
         // This browser's own record of every task it started.
         const saved = await localRecords<LocalJob>('job:');
         const merged = new Map(saved.map((item) => [item.id, item]));
@@ -140,11 +142,16 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
     // The browser keeps one data partition per account; switching re-reads it.
     let active = true;
     setReady(false);
-    void hydrateLocalData()
+    if (account.checking) return;
+    void api<Capabilities>('/api/capabilities').then(async (capabilities) => {
+      configureCloudStorage(capabilities.private_storage === true);
+      await hydrateLocalData();
+      await restoreCloudData();
+    })
       .then(() => { if (active) setReady(true); })
       .catch((err) => { if (active) { setReady(true); setError((err as Error).message); } });
     return () => { active = false; };
-  }, [account.user?.id]);
+  }, [account.user?.id, account.checking]);
   useEffect(() => {
     let alive = true;
     void api<{ model_price_points: number }>('/api/pricing').then((pricing) => {

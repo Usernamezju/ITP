@@ -96,26 +96,27 @@ export function BodyMetricsPanel({ ready, onSaved }: { ready: boolean; onSaved?:
   return <section className="body-metrics" aria-label="人体数据" aria-busy={status === 'loading'}>
     <div className="field-heading">
       <label className="field-label"><Ruler size={12} /> 人体数据</label>
-      <span>选填 · 仅存本机 · {filled}/6</span>
+      <span>选填 · 账号私有 · {filled}/6</span>
     </div>
     <div className="body-metrics-grid">
       {fields.map((field) => <label key={field.key} className="body-metrics-field">
         <span>{field.label}</span>
         <input className="text-input" type="number" inputMode="decimal" min={field.min} max={field.max}
+          disabled={!ready || status === 'loading'}
           step={field.step} placeholder="—" value={draft[field.key]}
           aria-label={`${field.label}（${field.unit}）`}
           onChange={(event) => edit(field.key, event.target.value)} />
         <i>{field.unit}</i>
       </label>)}
     </div>
-    <p className="hint">填了身高才能把模型比例换算成厘米；没填的项会用模型比例推算，并在推荐页标注「估算」。数据保存在本机浏览器，不会长期存放在服务器。</p>
+    <p className="hint">填了身高才能把模型比例换算成厘米；没填的项会用模型比例推算，并在推荐页标注「估算」。登录后新保存的数据同步到账号私有空间；旧本机数据可在账户页确认迁移。</p>
     <div className="body-metrics-actions">
       <button className="text-button" type="button" onClick={() => void save()}
         disabled={!ready || status === 'saving' || status === 'loading' || !dirty}>
         {status === 'saving' ? <LoaderCircle size={13} className="spin" /> : <Ruler size={13} />}
         {status === 'saving' ? '保存中' : '保存人体数据'}
       </button>
-      {status === 'saved' && <span className="body-metrics-ok"><Check size={13} /> 已保存在本机，可用于尺码推荐</span>}
+      {status === 'saved' && <span className="body-metrics-ok"><Check size={13} /> 已保存，可用于尺码推荐</span>}
       {error && <span className="body-metrics-error" role="alert">{error}</span>}
     </div>
   </section>;

@@ -56,6 +56,8 @@ async function openAccount(page: Page, signedIn = false) {
       await route.fulfill({ json: { balance_points: 200, model_price_points: 800, recommend_limit: 2, recommend_used: 0, first_month: true, first_month_ends: 1800000000 } });
     } else if (path === '/api/account/points/ledger') {
       await route.fulfill({ json: { items: [] } });
+    } else if (path === '/api/account/storage') {
+      await route.fulfill({ json: { used_bytes: 0, quota_bytes: 524288000, retention_days: 365, items: [] } });
     } else if (path === '/api/pricing') {
       await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, model_price_points: 800, plans: [
         { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567,

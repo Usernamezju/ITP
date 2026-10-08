@@ -6,6 +6,7 @@ import { sessionToken } from './session';
 import './AccountPage.css';
 import { CommercePanel } from './CommercePanel';
 import { PhoneBinding } from './PhoneBinding';
+import { PrivateStoragePanel } from './PrivateStoragePanel';
 
 export function AccountPage({ user, onChanged, children }: { user: Account | null; onChanged: () => void; children?: ReactNode }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -165,6 +166,7 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
         })}><LogOut size={15} />退出登录</button>
       </section>
       </CommercePanel>
+      <PrivateStoragePanel />
     </>}
     {children}
   </main>;

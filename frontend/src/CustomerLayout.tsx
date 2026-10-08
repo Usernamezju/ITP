@@ -53,7 +53,7 @@ function CustomerChrome() {
     </aside>
     <div className="workspace-shell">
       <header className="topbar"><div className="wordmark">ClothiNation <span>穿搭空间</span><i /> <span className="breadcrumb">发现适合你的穿搭</span></div>
-        <div className="topbar-right"><span className="local-badge"><span /> 素材保存在本机</span>
+        <div className="topbar-right"><span className="local-badge"><span /> {account.user ? '账户私有空间' : '登录后同步素材'}</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button>
           <button type="button" className="feedback-trigger" aria-haspopup="dialog"
             aria-label="意见反馈" onClick={() => setFeedback(true)}>

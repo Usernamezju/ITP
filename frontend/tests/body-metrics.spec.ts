@@ -47,14 +47,14 @@ test('body measurements are optional, saved locally and read back after reload',
   const panel = page.getByRole('region', { name: '人体数据' });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('选填');
-  await expect(panel).toContainText('仅存本机');
+  await expect(panel).toContainText('账号私有');
   await expect(page.getByLabel('身高（cm）')).toHaveValue('');
   await expect(page.getByRole('button', { name: /保存人体数据/ })).toBeDisabled();
 
   await page.getByLabel('身高（cm）').fill('170');
   await page.getByLabel('胸围（cm）').fill('88.5');
   await page.getByRole('button', { name: /保存人体数据/ }).click();
-  await expect(page.getByText('已保存在本机，可用于尺码推荐')).toBeVisible();
+  await expect(page.getByText('已保存，可用于尺码推荐')).toBeVisible();
 
   await page.reload();
   const saved = page.getByRole('region', { name: '人体数据' });
@@ -70,7 +70,7 @@ test('out-of-range measurements are refused before anything is stored', async ({
   await openWorkspace(page);
   await page.getByLabel('身高（cm）').fill('170');
   await page.getByRole('button', { name: /保存人体数据/ }).click();
-  await expect(page.getByText('已保存在本机，可用于尺码推荐')).toBeVisible();
+  await expect(page.getByText('已保存，可用于尺码推荐')).toBeVisible();
   await page.getByLabel('身高（cm）').fill('90');
   await page.getByRole('button', { name: /保存人体数据/ }).click();
   await expect(page.getByRole('alert')).toContainText('身高应在 120–220cm 之间');

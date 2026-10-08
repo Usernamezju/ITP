@@ -46,6 +46,7 @@ class TransientStore(Store):
         self.scopes: dict[str, dict] = {}
         self.touched: dict[str, float] = {}
         self.reserved: dict[str, Path] = {}
+        self.archive = None
         temporary = root / "transient"
         temporary.mkdir(parents=True, exist_ok=True)
         temporary.chmod(0o700)
@@ -59,9 +60,13 @@ class TransientStore(Store):
     def save_job(self, job, *, new=False):
         with self.guard:
             current = self.job(job["id"])
+            if not new and current is None and getattr(self.context, "scope", None) == job["id"]:
+                return
             if current and current["state"] == "cancelled" and job["state"] != "cancelled":
                 return
             super().save_job(job, new=new)
+            if self.archive:
+                self.archive.archive_task(job)
 
     def sweep_stale(self):
         # Only our marked temporary directories, under this exact work root.
@@ -100,6 +105,8 @@ class TransientStore(Store):
             asset = super().add_asset(asset_id, path, kind, **metadata)
             self.touched[asset_id] = time.time()
             self.reserved.pop(asset_id, None)
+            if self.archive:
+                self.archive.archive_asset(asset, path.read_bytes())
             return asset
 
     def all_assets(self):
@@ -244,13 +251,19 @@ class TransientDocuments:
     def __init__(self):
         self.guard = threading.RLock()
         self.items = {}
+        self.deleted = set()
+        self.archive = None
 
     def save(self, item):
         with self.guard:
+            if item["id"] in self.deleted:
+                return
             current = self.items.get(item["id"])
             if current and current.get("state") == "cancelled":
                 return
             self.items[item["id"]] = copy.deepcopy(item)
+            if self.archive:
+                self.archive(item)
 
     def get(self, item_id):
         with self.guard:
@@ -279,4 +292,5 @@ class TransientDocuments:
 
     def delete(self, item_id):
         with self.guard:
+            self.deleted.add(item_id)
             self.items.pop(item_id, None)

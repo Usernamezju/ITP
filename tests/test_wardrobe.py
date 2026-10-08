@@ -378,7 +378,8 @@ def test_recommend_endpoint_survives_a_broken_mesh(settings):
     with client_for(settings) as client:
         store = client.app.state.store
         owner = client.app.state.merchants.merchant_by_name("model-tester")["id"]
-        mesh = add_mesh(store, b"glTF but not really", owner=owner)
+        mesh = add_mesh(store, glb_bytes(), owner=owner)
+        store.path(mesh).write_bytes(b"glTF but not really")
         body = client.post("/api/outfits/recommend", json={"asset_id": mesh}).json()
         assert body["source"] == "default"
         assert body["analysis"]["available"] is False
