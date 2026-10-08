@@ -14,19 +14,22 @@ class JobRequest(BaseModel):
     views_consistent_confirmed: bool = False
     pose_mode: Literal["original", "custom", "a-pose", "t-pose"] = "original"
     pose_reference: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
-    topology: bool = False
-    polygon_type: Literal["triangle", "quadrilateral"] = "triangle"
-    face_level: Literal["low", "medium", "high"] = "medium"
     face_count: int = Field(default=100000, ge=3000, le=1500000)
-    texture: bool = True
-    texture_size: Literal[1024, 2048, 4096] = 2048
-    rig: bool = False
-    neutral_pose_confirmed: bool = False
-    export_fbx: bool = False
     seed: int = Field(default=42, ge=0, le=2147483647)
+    # Retopology, PBR texturing, rigging and FBX export were removed with the
+    # rest of the post-processing: the pipeline now produces one previewable
+    # GLB.  The four flags stay declared — and can only ever be false — so a
+    # client built before the change keeps getting a clear refusal instead of a
+    # validation error it cannot explain.
+    topology: bool = False
+    texture: bool = False
+    rig: bool = False
+    export_fbx: bool = False
 
     @model_validator(mode="after")
     def validate_combination(self):
+        if self.topology or self.texture or self.rig or self.export_fbx:
+            raise ValueError("基础建模仅包含姿势编辑与几何生成，不支持拓扑、PBR、绑骨或 FBX")
         if self.pose_mode == "custom" and not self.pose_reference:
             raise ValueError("自定义姿势需要姿势参考图")
         if self.pose_mode != "custom" and self.pose_reference:
@@ -35,6 +38,4 @@ class JobRequest(BaseModel):
             raise ValueError("姿势变换不能混用原姿势的多视角图片")
         if self.views and not self.views_consistent_confirmed:
             raise ValueError("请确认所有视角为同一人物、同一服装和同一姿势")
-        if self.rig and (self.pose_mode == "custom" or not self.neutral_pose_confirmed):
-            raise ValueError("自动绑骨要求已确认的 A/T 中性姿态，不能使用动态自定义姿势")
         return self

@@ -80,9 +80,11 @@ export type OutfitResponse = {
 export type PoseMode = 'original' | 'custom' | 'a-pose' | 't-pose';
 export type Job = {
   id: string; name: string; state: string; created: number; error: string | null;
+  // The four removed post-processing flags are still on old records, so they
+  // are optional here; nothing writes them any more.
   request: { front: string; views?: Record<string, string>; pose_reference?: string | null;
-    pose_mode: PoseMode; topology: boolean; texture: boolean;
-    rig: boolean; export_fbx: boolean; face_count?: number };
+    pose_mode: PoseMode; face_count?: number;
+    topology?: boolean; texture?: boolean; rig?: boolean; export_fbx?: boolean };
   models?: { geometry?: string; pose?: string };
   pose_asset: string | null;
   steps: { name: string; status: string; provider_job_id?: string; request_id?: string }[];

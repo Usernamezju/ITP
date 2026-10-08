@@ -69,9 +69,7 @@ export default function WorkspacePage() {
     caps, jobs, setJobs, selected, account, modelPrice, setError,
     name, setName, front, setFront, reference, setReference, views, setViews,
     viewsConsistent, setViewsConsistent, poseMode, changePose,
-    background, setBackground, topology, setTopology, texture, setTexture,
-    rig, setRig, neutral, setNeutral, fbx, setFbx,
-    faceCount, setFaceCount, faceLevel, setFaceLevel, polygon, setPolygon,
+    background, setBackground, faceCount, setFaceCount,
     uploadCount, setUploadCount, localModel, setLocalModel, artifact, setArtifact,
     ready, addJob, chooseJob, previewImage,
   } = useCustomer();
@@ -96,7 +94,6 @@ export default function WorkspacePage() {
     ...(poseMode !== 'original' && caps && !caps.pose ? ['姿势编辑服务暂不可用，可选择原始姿势'] : []),
     ...(poseMode === 'custom' && !reference ? ['请上传姿势参考图'] : []),
     ...(Object.values(views).some(Boolean) && !viewsConsistent ? ['请确认所有视角为同一人物、同一服装和同一姿势'] : []),
-    ...(rig && !neutral ? ['请确认自动绑骨所需的中性姿态'] : []),
   ];
   async function generate() {
     if (submitting) return;
@@ -118,8 +115,7 @@ export default function WorkspacePage() {
         views: uploadedViews,
         views_consistent_confirmed: viewsConsistent,
         pose_mode: poseMode, pose_reference: uploadedReference ?? null,
-        topology, polygon_type: polygon, face_level: faceLevel, face_count: faceCount,
-        texture, rig, neutral_pose_confirmed: neutral, export_fbx: fbx,
+        face_count: faceCount,
       });
       const mirror = await saveJob(created);
       addJob(mirror);
@@ -138,8 +134,7 @@ export default function WorkspacePage() {
   }
   const generatedGlb = job?.artifacts.filter((item) => item.format === 'GLB').at(-1)?.id;
   const modelUrl = localModel?.url ?? localFileUrl(artifact ?? generatedGlb ?? '') ?? null;
-  const planned = ['geometry', ...(topology ? ['topology'] : []), ...(texture ? ['texture'] : []),
-    ...(rig ? ['rig'] : []), ...(fbx ? ['export'] : [])];
+  const planned = ['geometry'];
 
   return <>
     <main className="studio-grid">
@@ -157,29 +152,20 @@ export default function WorkspacePage() {
           {poseMode === 'original' && <><div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图'], ['left_front', '左前 45°'], ['right_front', '右前 45°']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>
             {Object.values(views).some(Boolean) && <label className="confirmation"><input type="checkbox" checked={viewsConsistent} onChange={(event) => setViewsConsistent(event.target.checked)} />我确认所有视角为同一人物、同一服装、同一姿势</label>}</>}
           <BodyMetricsPanel ready={ready} />
-          <div className="divider" /><div className="field-heading"><label className="field-label">资产处理</label><span>PIPELINE</span></div>
+          <div className="divider" /><div className="field-heading"><label className="field-label">基础几何生成</label><span>GLB</span></div>
           <label className="select-row">几何目标面数<select aria-label="几何目标面数" value={faceCount} onChange={(event) => setFaceCount(Number(event.target.value))}><option value={30000}>30,000 · 轻量</option><option value={100000}>100,000 · 均衡</option><option value={500000}>500,000 · 精细</option><option value={1500000}>1,500,000 · 极致</option></select></label>
-          <Toggle title="智能拓扑" description="重新组织网格，降低面数" checked={topology} onChange={setTopology} />
-          {topology && <div className="inline-selects"><select aria-label="拓扑面数档位" value={faceLevel} onChange={(event) => setFaceLevel(event.target.value)}><option value="low">低面数</option><option value="medium">中面数</option><option value="high">高面数</option></select><select aria-label="拓扑面类型" value={polygon} onChange={(event) => setPolygon(event.target.value)}><option value="triangle">三角面</option><option value="quadrilateral">四边面混合</option></select></div>}
-          <Toggle title="PBR 纹理" description="生成 2K 物理材质贴图" checked={texture} onChange={setTexture} />
-          <Toggle title="自动绑骨" description={poseMode === 'custom' ? '动态自定义姿态不支持绑骨' : '适用于规整 A / T 姿态角色'} checked={rig} onChange={setRig} disabled={poseMode === 'custom'} />
-          {rig && <label className="confirmation"><input type="checkbox" checked={neutral} onChange={(event) => setNeutral(event.target.checked)} />我将确认角色为规整 A/T 姿态，且无额外武器或复杂配件</label>}
-          <Toggle title="额外导出 FBX" description="通过云端转换保留实际模型格式" checked={fbx} onChange={setFbx} />
+          <p className="hint">可选姿势编辑与几何生成，输出可预览、可下载的 GLB。800 积分 / 次，失败或无有效模型自动退还。</p>
         </div>
         <div className="generate-footer"><button className="generate-button" disabled={submitting} onClick={() => void generate()}>{submitting ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />} 开始生成<ArrowRight size={16} /></button>
           {modelPrice !== null && <small>基础人体建模 {modelPrice} 积分 / 次，失败退还</small>}
           {showGenerateIssues && generateIssues.length > 0 && <div className="generate-issues" role="alert"><strong>还需要完成：</strong><ul>{generateIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
             </div>}
-          <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '人体建模暂不可用，仍可上传图片或导入 GLB' : poseMode !== 'original' && !caps.pose ? '姿势编辑暂不可用，可选择原始姿势' : '所选云端生成与处理步骤可能产生费用'}</small></div>
+          <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '人体建模暂不可用，仍可上传图片或导入 GLB' : poseMode !== 'original' && !caps.pose ? '姿势编辑暂不可用，可选择原始姿势' : '云端生成基础几何模型，会按次扣除积分'}</small></div>
       </section>
       <section className="canvas-panel"><div className="canvas-heading"><div className="canvas-identity"><div className="canvas-title"><span className="live-dot" /><strong>{localModel?.name || job?.name || '三维预览'}</strong><span className="muted">/ {localModel ? '本地导入' : '工作场景'}</span></div>
         {job && !localModel && <dl className="asset-details" aria-label="资产生成参数">
           <div><dt>目标面数</dt><dd>{job.request.face_count?.toLocaleString('zh-CN') || '未记录'}</dd></div>
           <div><dt>姿势</dt><dd>{modes.find((mode) => mode.key === job.request.pose_mode)?.label || job.request.pose_mode}</dd></div>
-          <div><dt>智能拓扑</dt><dd>{job.request.topology ? '开启' : '关闭'}</dd></div>
-          <div><dt>PBR 纹理</dt><dd>{job.request.texture ? '开启' : '关闭'}</dd></div>
-          <div><dt>自动绑骨</dt><dd>{job.request.rig ? '开启' : '关闭'}</dd></div>
-          <div><dt>FBX 导出</dt><dd>{job.request.export_fbx ? '开启' : '关闭'}</dd></div>
           <div><dt>生成模型</dt><dd>混元生3D Pro · {job.models?.geometry || '版本未记录'}</dd></div>
           {job.request.pose_mode !== 'original' && <div><dt>姿势模型</dt><dd>{job.models?.pose || '版本未记录'}</dd></div>}
         </dl>}</div>
@@ -196,8 +182,6 @@ export default function WorkspacePage() {
         <Viewer url={modelUrl} label={localModel?.name || (job ? job.name : '未命名场景')} />
         <div className="pipeline-strip"><span>处理流程</span><div>{(job ? [
           ...(job.request.pose_mode !== 'original' ? ['pose'] : []), 'geometry',
-          ...(job.request.topology ? ['topology'] : []), ...(job.request.texture ? ['texture'] : []),
-          ...(job.request.rig ? ['rig'] : []), ...(job.request.export_fbx ? ['export'] : []),
         ] : [...(poseMode !== 'original' ? ['pose'] : []), ...planned]).map((stage, index) => {
           const step = job?.steps.find((s) => s.name === stage);
           return <span key={stage} className={`pipeline-stage ${step?.status || ''}`}>{index > 0 && <ChevronRight size={12} />}{step?.status === 'done' ? <Check size={12} /> : <i />}{stageLabels[stage]}</span>;
@@ -208,7 +192,7 @@ export default function WorkspacePage() {
           <p>{explainJobError(job.error, job.steps.find((step) => step.status === 'failed')?.name)}</p>
         </div>}
         <div className="assets-section"><div className="section-heading"><h2><FileBox size={16} /> 生成产物</h2><span className={job ? `state ${jobState(job).className}` : 'muted'}>{job ? jobState(job).label : '尚未生成'}</span></div>
-          {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.id); }}>预览</button>}<a href={localFileUrl(item.id)} download={`${job.name}-${item.stage}.${item.format.toLowerCase()}`} aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
+          {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载。</p><span>GLB · 基础几何模型</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.id); }}>预览</button>}<a href={localFileUrl(item.id)} download={`${job.name}-${item.stage}.${item.format.toLowerCase()}`} aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
         </div>
         {job?.state === 'succeeded' && job.artifacts.some((item) => item.format === 'GLB') &&
           <FaceRefinePanel model={generatedGlb!} name={job.name} configured={Boolean(caps?.faceverse)} />}

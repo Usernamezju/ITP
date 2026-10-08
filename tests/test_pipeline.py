@@ -35,25 +35,22 @@ class Cloud:
 
 
 def fetch(url, path, **kwargs):
-    path.write_bytes(b"glTF" + b"\x00" * 20)
+    from test_commerce import triangle_glb
+    path.write_bytes(triangle_glb())
 
 
 def create_job(store, **kwargs):
     return store.create_job(JobRequest(front=store.test_image, **kwargs).model_dump())
 
 
-def test_pipeline_orders_topology_texture_rig_and_persists_each_output(store, settings):
+def test_pipeline_runs_only_geometry_and_persists_preview_glb(store, settings):
     cloud = Cloud()
-    job = create_job(
-        store, topology=True, texture=True, rig=True, neutral_pose_confirmed=True, export_fbx=True
-    )
+    job = create_job(store)
     Pipeline(store, settings, cloud=cloud, fetch=fetch).run_job(job)
     result = store.job(job["id"])
     assert result["state"] == "succeeded"
-    assert [s[0] for s in cloud.submissions] == ["geometry", "topology", "texture", "rig"]
-    assert "topology.glb" in cloud.submissions[2][1]["File3D"]["Url"]
-    assert "texture.glb" in cloud.submissions[3][1]["File3D"]["Url"]
-    assert len(result["artifacts"]) == 5
+    assert [s[0] for s in cloud.submissions] == ["geometry"]
+    assert len(result["artifacts"]) == 1
     assert "signature" not in str(public_job(result))
     assert all(store.path(a["asset_id"]).exists() for a in result["artifacts"])
 
@@ -78,7 +75,10 @@ def test_pose_review_stops_before_geometry_and_resumes(store, settings, image_by
             return {"url": "https://test.aliyuncs.com/pose.png"}
 
     def download(url, path, **kwargs):
-        path.write_bytes(image_bytes if "pose.png" in url else b"glTF" + b"\x00" * 20)
+        if "pose.png" in url:
+            path.write_bytes(image_bytes)
+        else:
+            fetch(url, path)
 
     cloud, pose = Cloud(), Pose()
     job = create_job(store, pose_mode="custom", pose_reference=store.test_image, texture=False)
@@ -133,7 +133,7 @@ def test_ambiguous_submission_is_not_repeated(store, settings):
 
 
 def test_failure_prevents_downstream_stages(store, settings):
-    job = create_job(store, topology=True)
+    job = create_job(store)
     cloud = Cloud()
     cloud.fail = True
     Pipeline(store, settings, cloud=cloud, fetch=fetch).run_job(job)

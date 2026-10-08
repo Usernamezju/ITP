@@ -7,11 +7,12 @@ import httpx
 from itp.config import Settings
 from itp.preprocessing import image_base64
 
+# The one cloud action the modelling pipeline still takes: a base mesh that
+# previews and downloads.  Retopology, texturing and rigging were removed with
+# the rest of the post-processing options, so their endpoints are not reachable
+# from here any more.
 ACTIONS = {
     "geometry": ("SubmitHunyuanTo3DProJob", "QueryHunyuanTo3DProJob"),
-    "topology": ("SubmitReduceFaceJob", "DescribeReduceFaceJob"),
-    "texture": ("SubmitTextureTo3DJob", "DescribeTextureTo3DJob"),
-    "rig": ("SubmitAutoRiggingJob", "DescribeAutoRiggingJob"),
 }
 
 
@@ -114,14 +115,6 @@ class TencentProvider:
 
     def query(self, stage: str, job_id: str) -> dict:
         return self.call(ACTIONS[stage][1], {"JobId": job_id})
-
-    def convert(self, url: str) -> dict:
-        result = self.call("Convert3DFormat", {"File3D": url, "Format": "FBX"})
-        return {
-            "results": [{"Type": "FBX", "Url": result["ResultFile3D"]}],
-            "request_id": result.get("RequestId"),
-        }
-
 
 class PoseProvider:
     def __init__(self, settings: Settings):

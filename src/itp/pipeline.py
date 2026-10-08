@@ -32,8 +32,9 @@ class Pipeline:
             raise Interrupted
 
     def has_valid_result(self, job):
-        return any(valid_mesh(self.store.path(artifact["asset_id"]), artifact["format"])
-                   for artifact in job["artifacts"] if self.store.asset(artifact["asset_id"]))
+        return any(valid_mesh(self.store.path(artifact["asset_id"]), "GLB")
+                   for artifact in job["artifacts"] if artifact["format"] == "GLB"
+                   and self.store.asset(artifact["asset_id"]))
 
     def step(self, job: dict, name: str) -> dict:
         existing = next((s for s in job["steps"] if s["name"] == name), None)
@@ -57,7 +58,7 @@ class Pipeline:
             if any(a["stage"] == step["name"] and a["index"] == index for a in job["artifacts"]):
                 continue
             kind = result.get("Type", "").upper()
-            if kind not in {"GLB", "OBJ", "FBX", "ZIP", "MTL", "PNG", "JPG", "JPEG"}:
+            if kind != "GLB":
                 continue
             asset_id, path = self.store.new_asset_path(kind.lower())
             try:
@@ -68,8 +69,8 @@ class Pipeline:
                     actual = path.with_suffix(".zip")
                     path.replace(actual)
                     path, kind = actual, "ZIP"
-                if kind == "GLB" and magic[:4] != b"glTF":
-                    raise ValueError("供应商返回的 GLB 文件头无效")
+                if kind != "GLB" or magic[:4] != b"glTF" or not valid_mesh(path, "GLB"):
+                    raise ProviderError("供应商未返回有效的 GLB 网格，积分将退还")
                 self.store.add_asset(asset_id, path, "model", format=kind)
                 job["artifacts"].append(
                     {"asset_id": asset_id, "format": kind, "stage": step["name"], "index": index}
@@ -140,14 +141,6 @@ class Pipeline:
         self.store.save_job(job)
         return step["results"]
 
-    @staticmethod
-    def choose(results: list[dict], formats=("GLB", "OBJ")) -> dict:
-        for kind in formats:
-            for result in results:
-                if result.get("Type", "").upper() == kind and result.get("Url"):
-                    return {"Type": kind, "Url": result["Url"]}
-        raise ProviderError("上一步没有返回下一阶段支持的模型格式")
-
     def pose_step(self, job: dict) -> bool:
         req = job["request"]
         if req["pose_mode"] == "original" or job["pose_approved"]:
@@ -191,26 +184,6 @@ class Pipeline:
         self.store.save_job(job)
         return False
 
-    def convert_step(self, job: dict, results: list[dict]):
-        step = self.step(job, "export")
-        if step["status"] == "done":
-            return
-        if step["status"] == "submitting":
-            raise ProviderError("格式转换结果不确定，请到云控制台核对，未自动重试")
-        if step["status"] == "pending":
-            source = self.choose(results, ("GLB", "FBX", "OBJ"))
-            if source["Type"] == "FBX":
-                step.update(status="download", results=[source])
-            else:
-                step["status"] = "submitting"
-                self.store.save_job(job)
-                response = self.cloud.convert(source["Url"])
-                step.update(status="download", **response)
-            self.store.save_job(job)
-        self.persist_results(job, step)
-        step["status"] = "done"
-        self.store.save_job(job)
-
     def run_job(self, job: dict):
         with self.store.processing(job["id"], job.get("owner_id")):
             self._run_job(job)
@@ -235,34 +208,9 @@ class Pipeline:
                     {"ViewType": view, "ViewImageBase64": image_base64(self.store.path(asset_id))}
                     for view, asset_id in req["views"].items()
                 ]
-            results = self.cloud_step(job, "geometry", payload)
-            if req["topology"]:
-                results = self.cloud_step(
-                    job,
-                    "topology",
-                    {
-                        "File3D": self.choose(results),
-                        "PolygonType": req["polygon_type"],
-                        "FaceLevel": req["face_level"],
-                    },
-                )
-            if req["texture"]:
-                results = self.cloud_step(
-                    job,
-                    "texture",
-                    {
-                        "File3D": self.choose(results),
-                        "EnablePBR": True,
-                        "Image": {"Base64": image_base64(front)},
-                        "TextureSize": req["texture_size"],
-                    },
-                )
-            if req["rig"]:
-                results = self.cloud_step(
-                    job, "rig", {"File3D": self.choose(results, ("GLB", "FBX"))}
-                )
-            if req["export_fbx"]:
-                self.convert_step(job, results)
+            self.cloud_step(job, "geometry", payload)
+            if not self.has_valid_result(job):
+                raise ProviderError("未生成可预览的 GLB 网格，积分将退还")
             job["state"] = "succeeded"
             self.store.save_job(job)
         except Interrupted:

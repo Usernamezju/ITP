@@ -39,22 +39,8 @@ export type CustomerWorkspace = {
   changePose: (mode: PoseMode) => void;
   background: boolean;
   setBackground: Dispatch<SetStateAction<boolean>>;
-  topology: boolean;
-  setTopology: Dispatch<SetStateAction<boolean>>;
-  texture: boolean;
-  setTexture: Dispatch<SetStateAction<boolean>>;
-  rig: boolean;
-  setRig: Dispatch<SetStateAction<boolean>>;
-  neutral: boolean;
-  setNeutral: Dispatch<SetStateAction<boolean>>;
-  fbx: boolean;
-  setFbx: Dispatch<SetStateAction<boolean>>;
   faceCount: number;
   setFaceCount: Dispatch<SetStateAction<number>>;
-  faceLevel: string;
-  setFaceLevel: Dispatch<SetStateAction<string>>;
-  polygon: string;
-  setPolygon: Dispatch<SetStateAction<string>>;
   uploadCount: number;
   setUploadCount: Dispatch<SetStateAction<number>>;
   localModel: { url: string; name: string } | null;
@@ -93,14 +79,7 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
   const [viewsConsistent, setViewsConsistent] = useState(false);
   const [poseMode, setPoseMode] = useState<PoseMode>('original');
   const [background, setBackground] = useState(false);
-  const [topology, setTopology] = useState(false);
-  const [texture, setTexture] = useState(true);
-  const [rig, setRig] = useState(false);
-  const [neutral, setNeutral] = useState(false);
-  const [fbx, setFbx] = useState(false);
   const [faceCount, setFaceCount] = useState(100000);
-  const [faceLevel, setFaceLevel] = useState('medium');
-  const [polygon, setPolygon] = useState('triangle');
   const [uploadCount, setUploadCount] = useState(0);
   const [localModel, setLocalModel] = useState<{ url: string; name: string } | null>(null);
   const [artifact, setArtifact] = useState<string | null>(null);
@@ -170,14 +149,13 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
   function newProject() {
     setSelected(null); setArtifact(null); setLocalModel(null);
     setName(''); setFront(undefined); setReference(undefined); setViews({}); setViewsConsistent(false);
-    setPoseMode('original'); setRig(false); setNeutral(false); setError('');
+    setPoseMode('original'); setError('');
     navigate('/');
   }
   function changePose(mode: PoseMode) {
     setPoseMode(mode);
     if (mode !== 'original') setViews({});
     if (mode !== 'custom') setReference(undefined);
-    if (mode === 'custom') { setRig(false); setNeutral(false); }
   }
   const previewImage = (id?: string | null) => (ready && id ? localAsset(id)?.url : undefined);
 
@@ -186,9 +164,7 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
     theme, setTheme,
     name, setName, front, setFront, reference, setReference, views, setViews,
     viewsConsistent, setViewsConsistent, poseMode, changePose,
-    background, setBackground, topology, setTopology, texture, setTexture,
-    rig, setRig, neutral, setNeutral, fbx, setFbx,
-    faceCount, setFaceCount, faceLevel, setFaceLevel, polygon, setPolygon,
+    background, setBackground, faceCount, setFaceCount,
     uploadCount, setUploadCount, localModel, setLocalModel, artifact, setArtifact, ready,
     addJob, chooseJob, newProject, previewImage,
   }}>{children}</CustomerContext.Provider>;

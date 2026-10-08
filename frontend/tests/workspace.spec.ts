@@ -37,7 +37,7 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
     name: 'pose.png', mimeType: 'image/png', buffer: image,
   });
   await expect(page.getByAltText('上传姿势参考图')).toBeVisible();
-  await expect(page.getByRole('switch', { name: /自动绑骨/ })).toBeDisabled();
+  await expect(page.getByRole('switch', { name: /自动绑骨|智能拓扑|PBR|FBX/ })).toHaveCount(0);
 
   await page.getByLabel('导入 GLB 模型').setInputFiles({
     name: 'triangle.glb', mimeType: 'model/gltf-binary', buffer: triangleGlb(),

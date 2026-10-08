@@ -1,6 +1,8 @@
 import type { Job } from './api';
 import type { LocalJob } from './transient';
 
+// Only the stages the modelling pipeline still runs; the labels for retopology,
+// texturing, rigging and FBX export stay so old task records still read.
 export const stageLabels: Record<string, string> = {
   pose: '姿势编辑', geometry: '几何生成', topology: '智能拓扑', texture: 'PBR 纹理',
   rig: '自动绑骨', export: 'FBX 导出', face_refine: '脸部精修',
