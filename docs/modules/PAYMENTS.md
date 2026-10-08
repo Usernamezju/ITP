@@ -69,9 +69,13 @@
 没有商户号时，运维可以上传自己的微信/支付宝个人收款码作为备用通道。
 它与其他渠道共用 `payment_orders`，但**没有任何自动确认路径**：
 
-- `ManualQrProvider.create()` 只返回管理员上传图片的地址
-  （`checkout.qr_image` → `/api/payments/manual/qr/<key>`），前端沿用现有
-  二维码展示，无需改动顾客端。
+- `ManualQrProvider.create()` 返回管理员上传图片的地址
+  （`checkout.qr_image` → `/api/payments/manual/qr/<key>`）并置
+  `checkout.manual = true`。顾客端读出这个标记后：状态显示「待人工确认」而不是
+  「等待支付」——后者会让已经转过账的人以为钱没到、再转一次；同时明确写出应转
+  金额，并说明这是一张**不含金额**的收款图片，转账金额要自己填，好让人不必守着
+  银行 App 等一个不会出现的金额。「刷新支付状态」在这类订单上改叫「查询人工确认
+  结果」，因为渠道那边确实没有结果可查，能变的是管理员的确认。
 - `query()` 永远返回 `None`：扫码、轮询、「刷新支付状态」都不会把订单变成
   已支付；`callback()` 同样不产生任何已验证事件（`/api/payments/callbacks/`
   只接受 alipay/wechat/mock，人工渠道名直接 422）。顾客端也没有提交

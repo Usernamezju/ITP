@@ -16,10 +16,10 @@
 | 阶段 | 提交 | 查询 | 关键输入 |
 | --- | --- | --- | --- |
 | 几何 | SubmitHunyuanTo3DProJob | QueryHunyuanTo3DProJob | ImageBase64、Model、GenerateType=Geometry、FaceCount、可选 MultiViewImages |
-| 拓扑 | SubmitReduceFaceJob | DescribeReduceFaceJob | File3D、PolygonType、FaceLevel |
-| 纹理 | SubmitTextureTo3DJob | DescribeTextureTo3DJob | File3D、Image、EnablePBR、TextureSize |
-| 绑骨 | SubmitAutoRiggingJob | DescribeAutoRiggingJob | File3D |
-| FBX 转换 | Convert3DFormat（同步） | 不适用 | File3D URL、Format=FBX |
+| 拓扑（已下线） | SubmitReduceFaceJob | DescribeReduceFaceJob | File3D、PolygonType、FaceLevel |
+| 纹理（已下线） | SubmitTextureTo3DJob | DescribeTextureTo3DJob | File3D、Image、EnablePBR、TextureSize |
+| 绑骨（已下线） | SubmitAutoRiggingJob | DescribeAutoRiggingJob | File3D |
+| FBX 转换（已下线） | Convert3DFormat（同步） | 不适用 | File3D URL、Format=FBX |
 
 查询状态为 WAIT/RUN/FAIL/DONE；任务成功读取 `ResultFile3Ds`。下载链接有效期有限，工作流及时缓存每一步的产物，阶段间直接引用供应商 URL，不把本地路径误当公网 URL。
 
