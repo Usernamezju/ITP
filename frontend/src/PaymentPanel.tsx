@@ -9,9 +9,14 @@ import { PlanCards } from './PlanCards';
 type Method = { id: string; name: string; ready: boolean };
 type Order = { id: string; kind: string; provider: string; amount_cents: number; state: string;
   description: string; created: number; expires: number;
-  checkout: { mock?: boolean; qr_image?: string } | null };
+  // `manual` marks a personal collection code: nothing signed ever arrives for
+  // it, so an operator confirms the transfer by hand.
+  checkout: { mock?: boolean; manual?: boolean; qr_image?: string } | null };
 const states: Record<string, string> = { created: '等待支付', submitting: '支付订单处理中',
   pending: '等待支付', uncertain: '支付状态待确认', paid: '支付已确认' };
+
+/** True while a personal collection code is waiting on an operator, not a bank. */
+const awaitingOperator = (order: Order) => Boolean(order.checkout?.manual) && order.state !== 'paid';
 const PAGE_SIZE = 10;
 const methodNames: Record<string, string> = { alipay: '支付宝', wechat: '微信支付', mock: '模拟支付（仅开发测试）', free: '平台免费权益' };
 
@@ -19,7 +24,9 @@ function OrderStatus({ order }: { order: Order }) {
   return <span className={`commerce-status ${order.state === 'paid' ? 'success' : ''}`}>
     {order.state === 'paid' ? <CheckCircle2 size={14} aria-hidden="true" />
       : order.state === 'uncertain' ? <CircleAlert size={14} aria-hidden="true" /> : <Clock3 size={14} aria-hidden="true" />}
-    {states[order.state] || '订单状态待确认'}</span>;
+    {/* A collection code is confirmed by a person, and saying "等待支付" would
+        invite a second transfer from someone who has already sent the money. */}
+    {awaitingOperator(order) ? '待人工确认' : states[order.state] || '订单状态待确认'}</span>;
 }
 
 export function PaymentPanel({ plans, currentPlans = [], onPaid }: { plans: Plan[]; currentPlans?: string[]; onPaid: () => void }) {
@@ -136,13 +143,21 @@ export function PaymentPanel({ plans, currentPlans = [], onPaid }: { plans: Plan
       <p role="status"><OrderStatus order={active} /></p>
       <small>支付方式：{methodNames[active.provider] || '支付渠道'}<br />订单编号：<span className="payment-reference">{active.id}</span></small>
       {active.state === 'uncertain' && <p className="commerce-warning">支付渠道暂未确认结果，请查询原订单，不要重复付款。</p>}
+      {awaitingOperator(active) && <div className="payment-manual">
+        <p>请向下方收款码转账 <strong>¥{yuanText(active.amount_cents)}</strong>，金额请精确到分。</p>
+        <small>收款码是平台所有者的个人收款图片，<b>不含金额</b>，转账金额需要您自行填写；平台无法读取您的支付结果。
+          转账后由管理员核对到账再确认，确认前订单一直显示「待人工确认」，本页会自动感知，无需再次付款。</small>
+      </div>}
       {timedOut && <p className="commerce-warning">付款时限已到，请先刷新支付状态确认结果。若已付款，请勿重复付款；超时不代表支付失败。</p>}
       {active.state !== 'paid' && !timedOut && <small>付款期限：{new Date(active.expires * 1000).toLocaleString()}</small>}
       {active.state !== 'paid' && !timedOut && active.checkout?.qr_image && <img width="200" height="200" src={active.checkout.qr_image} alt="扫码支付二维码" />}
-      {active.state !== 'paid' && <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>刷新支付状态</button>}
+      {active.state !== 'paid' && <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>
+        {awaitingOperator(active) ? '查询人工确认结果' : '刷新支付状态'}</button>}
       {active.state !== 'paid' && active.checkout?.mock && <button type="button" className="text-button" disabled={busy}
         onClick={() => void refresh(true)}>模拟付款（仅开发测试）</button>}
-      <small>{active.state === 'paid' ? '支付成功，服务端已确认并更新余额或会员权益。' : '余额与会员仅在服务端核实支付后更新。'}</small>
+      <small>{active.state === 'paid' ? '支付成功，服务端已确认并更新余额或会员权益。'
+        : awaitingOperator(active) ? '余额与会员由管理员核对到账后发放；点击「已支付」或上传截图都不会入账。'
+          : '余额与会员仅在服务端核实支付后更新。'}</small>
     </section>}
     </section>
     <section className="account-card payment-orders" aria-label="我的订单">

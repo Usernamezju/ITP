@@ -33,3 +33,19 @@
 .ledger-description{flex:1;min-width:0}.ledger-description strong{font-size:13px;font-weight:500;display:flex;flex-wrap:wrap;gap:6px}.ledger-description time,.ledger-reference{display:block;font-size:12px;overflow-wrap:anywhere}
 .ledger-amount{text-align:right;flex-shrink:0}.ledger-amount strong{display:block;font-size:14px;font-weight:600}.ledger-amount small{font-size:12px;display:block}.income{color:var(--theme-success)}
 @media(max-width:480px){.wallet-balance{padding:16px}.wallet-balance>strong{font-size:30px}.ledger-icon{display:none}.ledger-entry{gap:6px}.ledger-description strong{font-size:12px}.ledger-amount strong{font-size:13px}.commerce-pagination .text-button{padding:5px}.payment-active{padding:12px}}
+
+/*
+ * A personal collection code cannot carry the amount and cannot report a
+ * result, so the block that replaces both says both things plainly: what to
+ * transfer, exactly, and who will confirm it.
+ */
+.payment-manual {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 13px; border: 1px solid var(--theme-warning-soft);
+  border-left: 3px solid var(--theme-warning); border-radius: 7px;
+  background: var(--theme-warning-soft);
+}
+.payment-manual p { font-size: 14px; line-height: 1.7; color: var(--theme-text); }
+.payment-manual p strong { color: var(--theme-warning); font-size: 17px; }
+.payment-manual small { font-size: 12px; line-height: 1.8; color: var(--theme-muted); }
+.payment-manual small b { color: var(--theme-warning); font-weight: 600; }

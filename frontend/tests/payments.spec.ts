@@ -9,17 +9,20 @@ const MANUAL_QR = Buffer.from(
   'base64');
 type Order = { id: string; kind: string; provider: string; amount_cents: number; state: string;
   description: string; created: number; expires: number;
-  checkout: { mock?: boolean; qr_image?: string } | null };
+  checkout: { mock?: boolean; manual?: boolean; qr_image?: string } | null };
 type Ledger = { id: string; kind: string; delta_cents: number; balance_cents: number; reference: string; created: number };
 
 async function openPayments(page: Page, enabled = true, options: { orders?: Order[]; ledger?: Ledger[];
   failCreateOnce?: boolean; failRefreshOnce?: boolean; failWalletOnce?: boolean;
   /** Offer the operator's own collection code instead of the test channel. */
-  manual?: boolean } = {}) {
+  manual?: boolean;
+  /** Confirm the manual order on this many-th poll, as an administrator would. */
+  operatorConfirmsAfter?: number } = {}) {
   let balance = 8765;
   let member = false;
   const orders: Order[] = options.orders || [];
   let createFails = Boolean(options.failCreateOnce);
+  let polls = 0;
   let refreshFails = Boolean(options.failRefreshOnce);
   let walletFails = Boolean(options.failWalletOnce);
   const ledger = options.ledger || [];
@@ -58,6 +61,12 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
       const offset = Number(query.get('offset') || 0), limit = Number(query.get('limit') || 50);
       return route.fulfill({ json: { items: ledger.slice(offset, offset + limit) } });
     }
+    if (path === '/api/account/storage') {
+      // The account page also carries the private-space panel; an unmocked route
+      // would put a second, unrelated alert on the page.
+      return route.fulfill({ json: { used_bytes: 0, quota_bytes: 104857600,
+        retention_days: 30, items: [] } });
+    }
     if (path === '/api/account/orders') {
       expect(request.headers()['authorization']).toBe('Bearer payment-token');
       if (request.method() === 'POST') {
@@ -70,7 +79,9 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
           amount_cents: body.kind === 'membership' ? 4567 : body.amount_cents,
           description: body.kind === 'membership' ? '个性化推荐年会员' : 'ClothiNation 钱包充值', state: 'pending',
           created: 1, expires: 1800000000,
-          checkout: manual ? { qr_image: '/api/payments/manual/qr/' + 'a'.repeat(32) } : { mock: true } };
+          checkout: manual
+            ? { manual: true, qr_image: '/api/payments/manual/qr/' + 'a'.repeat(32) }
+            : { mock: true } };
         orders.unshift(order);
         return route.fulfill({ status: 201, json: order });
       }
@@ -88,6 +99,16 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
         else member = true;
         if (order.kind === 'recharge') ledger.unshift({ id: order.id, kind: 'recharge', delta_cents: order.amount_cents,
           balance_cents: balance, reference: order.id, created: Math.floor(Date.now() / 1000) });
+      }
+      if (!path.endsWith('/refresh') && !path.endsWith('/mock-pay') && order.state !== 'paid') {
+        polls += 1;
+        // The administrator checks the real account statement and confirms; the
+        // page has no other way to learn it, which is the whole point.
+        if (options.operatorConfirmsAfter && polls > options.operatorConfirmsAfter) {
+          order.state = 'paid';
+          if (order.kind === 'recharge') balance += order.amount_cents;
+          else member = true;
+        }
       }
       return route.fulfill({ json: order });
     }
@@ -130,19 +151,40 @@ test('a manual collection code is shown, and refreshing never marks it paid', as
   await page.getByRole('button', { name: '创建充值订单' }).click();
 
   const panel = page.getByRole('region', { name: '支付订单' });
-  await expect(panel.getByRole('status')).toHaveText('等待支付');
+  // The status names who is confirming the transfer. "等待支付" would invite a
+  // second transfer from someone who has already sent the money.
+  await expect(panel.getByRole('status')).toHaveText('待人工确认');
   await expect(panel.getByAltText('扫码支付二维码'))
     .toHaveAttribute('src', /^\/api\/payments\/manual\/qr\/[a-f0-9]{32}$/);
   expect(writes[0].body.provider).toBe('manual_wechat');
 
+  // The payer is told the exact amount and that the code carries none of it.
+  const manual = panel.locator('.payment-manual');
+  await expect(manual.getByText('¥50.00', { exact: true })).toBeVisible();
+  await expect(manual).toContainText('不含金额');
+  await expect(manual).toContainText('管理员核对到账');
+
   // Refreshing only reads the stored state: a payer cannot confirm anything.
-  await panel.getByRole('button', { name: '刷新支付状态' }).click();
-  await expect(panel.getByRole('status')).toHaveText('等待支付');
-  await panel.getByRole('button', { name: '刷新支付状态' }).click();
-  await expect(panel.getByRole('status')).toHaveText('等待支付');
+  await panel.getByRole('button', { name: '查询人工确认结果' }).click();
+  await expect(panel.getByRole('status')).toHaveText('待人工确认');
+  await panel.getByRole('button', { name: '查询人工确认结果' }).click();
+  await expect(panel.getByRole('status')).toHaveText('待人工确认');
   // There is no browser-side "I paid" control on a manual order either.
   await expect(panel.getByRole('button', { name: '模拟付款（仅开发测试）' })).toHaveCount(0);
   await expect(page.getByText('¥87.65', { exact: true })).toBeVisible();
+});
+
+test('an operator confirmation reaches the payer through the same poll', async ({ page }) => {
+  // The administrator confirms out of band; the page has no other way to find
+  // out, so it has to be the poll that carries the news.
+  await openPayments(page, true, { manual: true, operatorConfirmsAfter: 1 });
+  await page.getByLabel('充值金额（元）').fill('50');
+  await page.getByRole('button', { name: '创建充值订单' }).click();
+
+  const panel = page.getByRole('region', { name: '支付订单' });
+  await expect(panel.getByRole('status')).toHaveText('待人工确认');
+  await expect(panel.getByRole('status')).toHaveText('支付已确认', { timeout: 10_000 });
+  await expect(page.getByText('¥137.65', { exact: true })).toBeVisible();
 });
 
 test('unconfigured production payment does not fall back to mock or ask for keys', async ({ page }) => {
