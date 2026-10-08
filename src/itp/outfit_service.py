@@ -126,8 +126,17 @@ def _palette(members: list[dict[str, Any]], stored: Any) -> list[str]:
 
 
 def _image_urls(images: list[dict[str, Any]]) -> list[str]:
-    """Stored image rows are turned into the public URL the browser can fetch."""
-    return [public_image(image)["url"] for image in images][:MAX_IMAGES_PER_LOOK]
+    """The URLs a browser can actually fetch, in the shop's own order.
+
+    A picture whose file is gone is dropped here rather than sent and failed,
+    which is what makes the *first* entry a real cover: the product keeps
+    showing a picture instead of a broken frame when one file is lost.
+    """
+    return [
+        public_image(image)["url"]
+        for image in images
+        if image.get("available", True)
+    ][:MAX_IMAGES_PER_LOOK]
 
 
 def _tagline(story: Any, members: list[dict[str, Any]]) -> str:

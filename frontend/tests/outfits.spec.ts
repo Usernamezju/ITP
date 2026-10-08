@@ -78,7 +78,8 @@ const imagePayload = {
 };
 
 /** Serves the built bundle offline, records outfits requests and can fail image search. */
-async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], images: unknown = imagePayload) {
+async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [],
+  images: unknown = imagePayload, deadImages: string[] = []) {
   if (jobs.length) await page.addInitScript(() => localStorage.setItem('itp.merchant.token', 'outfits-token'));
   const requests: string[] = [];
   await page.route('**/*', async (route) => {
@@ -131,6 +132,9 @@ async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], imag
     await route.fulfill({ json: images });
   });
   await page.route('**/api/outfit-images/*', async (route) => {
+    // Named pictures answer 404, so a card can be tested against a dead file.
+    const path = new URL(route.request().url()).pathname;
+    if (deadImages.includes(path)) { await route.fulfill({ status: 404, body: '' }); return; }
     await route.fulfill({ body: pixel, contentType: 'image/png' });
   });
   await page.goto('/');
@@ -297,4 +301,20 @@ test('the browser offers its own model and filters to the recommend endpoint', a
   await expect.poll(() => requests.some((body) => body.includes('"style":"通勤"'))).toBe(true);
   await page.getByRole('button', { name: '查看全部套装' }).click();
   await expect.poll(() => requests.some((body) => body.includes('"limit":24'))).toBe(true);
+});
+
+
+test('a look shows its next picture when the first one will not load', async ({ page }) => {
+  // A merchant look whose first file is gone: the card has to reach the second
+  // picture rather than drop to the colour sketch over one dead file.
+  const payload = analysisPayload(true);
+  payload.recommendations[0] = {
+    ...payload.recommendations[0], origin: 'database',
+    image_url: '/api/outfit-images/dead',
+    image_urls: ['/api/outfit-images/dead', '/api/outfit-images/live'],
+  };
+  await openOutfits(page, payload, [], undefined, ['/api/outfit-images/dead']);
+
+  await expect(page.locator('.outfit-card').first().locator('img'))
+    .toHaveAttribute('src', '/api/outfit-images/live');
 });

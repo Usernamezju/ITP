@@ -62,10 +62,11 @@ function metrics(overrides: Record<string, unknown> = {}) {
 }
 
 function garment(id: string, overrides: Record<string, unknown> = {}) {
-  const built = metrics(overrides);
+  const { images = [], ...fields } = overrides;
+  const built = metrics(fields);
   return {
     id, merchant_id: profile.merchant_id, status: built.status, created: 1, updated: 1,
-    metrics: built, images: [],
+    metrics: built, images,
   };
 }
 
@@ -86,6 +87,8 @@ async function openConsole(page: Page, state: {
   clicks?: Record<string, Clicks>;
   /** Answer the AI import route with this Chinese failure instead. */
   importError?: string;
+  /** Picture ids the mock image route answers 404 for, as a lost file would. */
+  missing?: string[];
 } = {}) {
   const calls: Recorded[] = [];
   const goods = [...(state.goods ?? [garment('g1'), garment('g2', {
@@ -190,6 +193,10 @@ async function openConsole(page: Page, state: {
       };
       looks.unshift(created);
       await route.fulfill({ status: 201, json: created });
+    } else if (pathname.startsWith('/api/garment-images/')) {
+      const id = pathname.slice('/api/garment-images/'.length);
+      if ((state.missing ?? []).includes(id)) await route.fulfill({ status: 404, body: '' });
+      else await route.fulfill({ body: PNG, contentType: 'image/png' });
     } else if (pathname.startsWith('/assets/')) {
       const name = pathname.slice('/assets/'.length);
       if (!/^[\w.-]+$/.test(name)) { await route.fulfill({ status: 404 }); return; }
@@ -221,7 +228,7 @@ test('signing in opens the shop with its goods and their size ranges', async ({ 
 
   await expect(page.getByText('示例商家')).toBeVisible();
   await expect(page.getByText('@demo-shop · demo@example.com')).toBeVisible();
-  await expect(page.getByText('本周期上传 3/5 · 商品 2 件')).toBeVisible();
+  await expect(page.getByText('本周期新增 3/5 · 商品 2 件')).toBeVisible();
   const row = page.locator('.merchant-goods > li').first();
   await expect(row).toContainText('细罗纹半高领针织');
   await expect(row).toContainText('适合身高 158–176 · 适合胸围 86–96');
@@ -467,4 +474,54 @@ test('a refused link explains itself and fills nothing', async ({ page }) => {
   await page.getByRole('button', { name: 'AI 识别' }).click();
   await expect(page.locator('.error-banner')).toContainText('内网');
   await expect(page.getByLabel('商品名称')).toHaveValue('');
+});
+
+
+/* ------------------------------------------------------------- cover chain */
+
+/** One product picture as the API sends it. */
+const cover = (id: string, position: number, available = true) => ({
+  id, url: `/api/garment-images/${id}`, position, created: 1, available,
+});
+
+test('a product skips a picture the server already says it cannot serve', async ({ page }) => {
+  await openConsole(page, { goods: [garment('g1', {
+    images: [cover('i1', 0, false), cover('i2', 1)],
+  })] });
+
+  // The card moves straight to the shop's second picture; nothing is drawn for
+  // the first, because there is nothing there to load.
+  await expect(page.locator('.merchant-good-thumb img').first())
+    .toHaveAttribute('src', '/api/garment-images/i2');
+});
+
+test('a product left without a usable picture falls back to its colour', async ({ page }) => {
+  await openConsole(page, { goods: [garment('g1', {
+    images: [cover('i1', 0, false), cover('i2', 1, false)],
+  })] });
+
+  await expect(page.locator('.merchant-good-thumb i').first())
+    .toHaveCSS('background-color', 'rgb(201, 214, 189)');
+  await expect(page.locator('.merchant-good-thumb img')).toHaveCount(0);
+});
+
+test('a picture that fails in the browser steps to the next one', async ({ page }) => {
+  // The server believed both files were there; the first is gone by the time
+  // the browser asks for it. The product keeps its second picture.
+  await openConsole(page, {
+    missing: ['i1'],
+    goods: [garment('g1', { images: [cover('i1', 0), cover('i2', 1)] })],
+  });
+
+  await expect(page.locator('.merchant-good-thumb img').first())
+    .toHaveAttribute('src', '/api/garment-images/i2');
+});
+
+test('the shop can still see and replace a picture whose file is gone', async ({ page }) => {
+  await openConsole(page, { goods: [garment('g1', { images: [cover('i1', 0, false)] })] });
+  await page.locator('.merchant-goods > li').first().getByRole('button', { name: '编辑' }).click();
+
+  // Hiding the entry from the owner would leave them no way to repair it, so
+  // the editor names the problem instead.
+  await expect(page.getByText('图片文件已丢失，请重新上传')).toBeVisible();
 });

@@ -12,6 +12,7 @@ import { AvatarImage } from './Avatar';
 import { BrandLockup, BrandMark } from './BrandLogo';
 import { SESSION_EVENT } from './session';
 import { parseYuan, yuanText } from './money';
+import { GarmentCover } from './GarmentCover';
 import {
   GarmentMetrics, GarmentOptions, LookDraft, MerchantGarment, MerchantLook,
   MerchantProfile, addGarmentImages, changePassword, createGarment, createLook,
@@ -240,6 +241,7 @@ function AuthPanel({ onSignedIn, onError }: {
 
   return <div className="merchant-auth">
     <form className="merchant-auth-card" onSubmit={submit}>
+      <BrandLockup className="merchant-auth-brand" />
       <div className="merchant-auth-heading">
       <BrandLockup className="merchant-auth-brand" />
         <Store size={20} strokeWidth={1.5} />
@@ -570,8 +572,13 @@ function GarmentEditor({ options, garment, onSaved, onCancel, onError }: {
 
         <h3><ImagePlus size={13} /> 商品图（最多 {limits.images_max} 张）</h3>
         {garment && garment.images.length > 0 && <div className="merchant-thumbs">
-          {garment.images.map((image) => <figure key={image.id}>
-            <img src={image.url} alt="已上传的商品图" />
+          {garment.images.map((image) => <figure key={image.id}
+            className={image.available === false ? 'merchant-thumb-missing' : undefined}>
+            {/* The shop is the one viewer who should see a broken entry: the row
+                survives a lost file, and only the shop can replace it. */}
+            {image.available === false
+              ? <span className="merchant-thumb-note">图片文件已丢失，请重新上传</span>
+              : <img src={image.url} alt="已上传的商品图" />}
             <button type="button" aria-label="删除这张商品图"
               onClick={() => void removeImage(image.id)}><Trash2 size={12} /></button>
           </figure>)}
@@ -703,9 +710,7 @@ function LookEditor({ options, garments, look, onSaved, onCancel, onError }: {
               <input type="checkbox" checked={draft.items.includes(item.id)}
                 onChange={() => toggle(item.id)} />
               <span className="merchant-picker-thumb">
-                {item.images[0]
-                  ? <img src={item.images[0].url} alt="" />
-                  : <i style={{ background: item.metrics.attributes?.color || '#cccccc' }} />}
+                <GarmentCover images={item.images} color={item.metrics.attributes?.color} />
               </span>
               <span className="merchant-picker-text">
                 <strong>{item.metrics.name}</strong>
@@ -882,6 +887,9 @@ export function MerchantPage() {
 
   return <section className="merchant-page">
     <div className="merchant-bar">
+      <a href="/merchant" className="merchant-brand" aria-label="衣想国 ClothiNation 商家后台">
+        <BrandMark className="merchant-brand-mark" />
+      </a>
       <div className="merchant-identity">
         <AvatarImage className="merchant-avatar" user={profile} decorative />
         <div><strong>{profile.display_name}</strong>
@@ -950,9 +958,8 @@ export function MerchantPage() {
             : <ul className="merchant-goods">
               {garments.map((item) => <li key={item.id}>
                 <span className="merchant-good-thumb">
-                  {item.images[0]
-                    ? <img src={item.images[0].url} alt={`${item.metrics.name} 商品图`} />
-                    : <i style={{ background: item.metrics.attributes?.color || '#cccccc' }} />}
+                  <GarmentCover images={item.images} color={item.metrics.attributes?.color}
+                    alt={`${item.metrics.name} 商品图`} />
                 </span>
                 <div className="merchant-good-text">
                   <strong>{item.metrics.name}</strong>
@@ -986,10 +993,9 @@ export function MerchantPage() {
               : <ul className="merchant-goods">
                 {looks.map((item) => <li key={item.id}>
                   <span className="merchant-look-strip">
-                    {item.items.slice(0, 4).map((member) => <i key={member.id} style={{
-                      background: member.images[0] ? undefined : (member.metrics.attributes?.color || '#ccc'),
-                    }}>{member.images[0] &&
-                      <img src={member.images[0].url} alt="" />}</i>)}
+                    {item.items.slice(0, 4).map((member) =>
+                      <GarmentCover key={member.id} className="merchant-look-cover"
+                        images={member.images} color={member.metrics.attributes?.color} />)}
                   </span>
                   <div className="merchant-good-text">
                     <strong>{item.name}</strong>

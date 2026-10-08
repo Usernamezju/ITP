@@ -348,7 +348,7 @@ def create_app(
     store.archive = vault
     tryons.archive = lambda item: vault.archive_task(item, "tryon")
     face_jobs.archive = lambda item: vault.archive_task(item, "face")
-    merchants = MerchantStore(settings.data_dir, settings)
+    merchants = MerchantStore(settings.data_dir, settings, assets=commercial_assets)
     pipeline.commerce = merchants.commerce
     avatars = AvatarStore(settings.data_dir / "avatars")
     product_ai = ProductDescriber(settings, transport=product_ai_transport)
@@ -1824,11 +1824,11 @@ def create_app(
         image = merchants.image(image_id)
         if not image:
             raise HTTPException(404, "图片不存在")
-        asset = commercial_assets.asset(image["asset_id"])
-        if not asset:
-            raise HTTPException(404, "图片不存在")
-        path = commercial_assets.root / "assets" / asset["filename"]
-        if not path.is_file():
+        # The row and the file are checked together: a restored data directory
+        # can leave the row behind, and this is what tells the browser to move
+        # on to the next picture instead of waiting on a frame that never comes.
+        path = commercial_assets.file(image["asset_id"])
+        if not path:
             raise HTTPException(404, "图片文件已丢失")
         return FileResponse(
             path,

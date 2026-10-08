@@ -8,6 +8,7 @@ import { localAssets, localRecords, localValue } from './localData';
 import { sessionToken } from './session';
 import { uploadLocal, type LocalJob } from './transient';
 import { LookBoard } from './LookBoard';
+import { useBrokenImages, workingImage } from './GarmentCover';
 import { ProductPurchase } from './ProductPurchase';
 import { yuanText } from './money';
 import { clearPreferences, historyPreferences, rememberPreference } from './recommendationHistory';
@@ -179,6 +180,11 @@ function useOutfitImages(outfitId: string, limit: number, enabled = true) {
   return { images: result, loading, reload };
 }
 
+/** Wrap the single searched picture so the walk has something to walk. */
+function asGallery(current: { url: string } | undefined): string[] {
+  return current ? [current.url] : [];
+}
+
 /** One look: a merchant photo when it came from the database, else a searched one. */
 function OutfitCard({ outfit, analyzed, onOpen }: {
   outfit: Outfit; analyzed: boolean; onOpen: () => void;
@@ -190,17 +196,20 @@ function OutfitCard({ outfit, analyzed, onOpen }: {
   const searchable = outfit.origin !== 'database';
   const { images, loading, reload } = useOutfitImages(outfit.id, 4, seen && searchable);
   const [index, setIndex] = useState(0);
-  const [broken, setBroken] = useState('');
+  const [broken, breakImage] = useBrokenImages(product);
   const list = product.length || !searchable ? [] : (images?.images || []);
   const current = list.length ? list[index % list.length] : undefined;
-  const hero = product.length ? product[index % product.length] : current?.url;
+  // A picture that has failed in this browser is stepped over, so the card still
+  // shows the shop's second picture rather than dropping to the sketch.
+  const hero = workingImage(product.length ? product : asGallery(current), index, broken);
   const switchable = product.length > 1 || list.length > 1;
   const failed = Boolean(searchable && !product.length && images && !list.length && !loading);
   return <article className="outfit-card" ref={ref}>
     <div className="outfit-card-board">
       <button type="button" className="outfit-card-open" onClick={onOpen} aria-label={`查看${outfit.name}详情`}>
-        {hero && hero !== broken
-          ? <img src={hero} alt={current?.title || `${outfit.name} 参考图`} loading="lazy" onError={() => setBroken(hero)} />
+        {hero
+          ? <img src={hero} alt={current?.title || `${outfit.name} 参考图`} loading="lazy"
+            onError={() => breakImage(hero)} />
           : <LookBoard palette={outfit.palette} style={outfit.style} season={outfit.season} label={outfit.name} />}
       </button>
       {switchable && <button type="button" className="outfit-cycle"
@@ -237,11 +246,14 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
   const searchable = outfit.origin !== 'database';
   const { images, loading, reload } = useOutfitImages(outfit.id, 8, searchable);
   const [index, setIndex] = useState(0);
-  const [broken, setBroken] = useState('');
   const list = product.length || !searchable ? [] : (images?.images || []);
   const current = list[Math.min(index, Math.max(list.length - 1, 0))];
   const urls = product.length ? product : list.map((image) => image.url);
-  const hero = product.length ? product[Math.min(index, product.length - 1)] : current?.url;
+  const [broken, breakImage] = useBrokenImages(urls);
+  // The strip highlights the picture actually on screen, so stepping over a
+  // dead one never leaves the caption pointing at a different picture.
+  const hero = workingImage(urls, index, broken);
+  const shown = hero ? urls.indexOf(hero) : index;
 
   if (!urls.length) {
     const note = !searchable
@@ -258,12 +270,12 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
   }
   return <div className="outfit-gallery">
     <figure className="outfit-gallery-main">
-      {hero !== broken ? <img src={hero} alt={current?.title || `${outfit.name} 商品图`}
-        onError={() => setBroken(hero || '')} />
+      {hero ? <img src={hero} alt={current?.title || `${outfit.name} 商品图`}
+        onError={() => breakImage(hero)} />
         : <LookBoard palette={outfit.palette} style={outfit.style} season={outfit.season} label={outfit.name} />}
       <figcaption>
         {product.length
-          ? <span>商家上传的商品图 <b>{index + 1}/{product.length}</b></span>
+          ? <span>商家上传的商品图 <b>{shown + 1}/{product.length}</b></span>
           : <>
             <span>{current.title || '参考图'}</span>
             <span className="outfit-gallery-links">
@@ -277,9 +289,9 @@ function OutfitGallery({ outfit }: { outfit: Outfit }) {
     </figure>
     {urls.length > 1 && <div className="outfit-gallery-strip">
       {urls.map((url, position) => <button key={url} type="button"
-        className={position === index ? 'active' : ''} onClick={() => setIndex(position)}
+        className={position === shown ? 'active' : ''} onClick={() => setIndex(position)}
         aria-label={`查看第 ${position + 1} 张参考图`}>
-        <img src={url} alt="" loading="lazy" />
+        <img src={url} alt="" loading="lazy" onError={() => breakImage(url)} />
       </button>)}
     </div>}
     <p className="outfit-gallery-note">

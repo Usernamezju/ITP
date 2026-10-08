@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { GarmentCover } from './GarmentCover';
 import { clickRanges, fetchAnalytics, type MerchantAnalytics as Analytics } from './merchantApi';
 
 export function MerchantAnalytics({ revision }: { revision: string }) {
@@ -37,7 +38,8 @@ export function MerchantAnalytics({ revision }: { revision: string }) {
         <div className="merchant-analytics-table"><table><caption>商品点击明细</caption>
           <thead><tr><th>商品</th><th>今日</th><th>本月</th><th>累计</th><th>购买链接</th></tr></thead>
           <tbody>{data.items.map((item) => <tr key={item.id}>
-            <td>{item.images[0] && <img width="48" height="48" src={item.images[0].url} alt="" />}
+            <td><GarmentCover className="merchant-analytics-cover" images={item.images}
+              color={item.metrics.attributes?.color} alt={`${item.metrics.name} 商品图`} />
               {item.metrics.name}</td><td>{item.clicks.today}</td><td>{item.clicks.month}</td><td>{item.clicks.total}</td>
             <td>{item.metrics.purchase_url ? <a href={item.metrics.purchase_url} target="_blank"
               rel="noopener noreferrer">查看购买链接</a> : '未设置'}</td>

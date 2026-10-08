@@ -61,6 +61,41 @@ class Store:
             row = conn.execute("SELECT document FROM assets WHERE id = ?", (asset_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def file(self, asset_id: str) -> Path | None:
+        """The asset's file, or None when the row or the file itself is gone.
+
+        A row can outlive its file — a data directory restored without the
+        commercial asset store, a cleanup that removed the file and missed the
+        row — so anything that hands a URL to a browser asks this first instead
+        of promising a picture it cannot send.
+        """
+        asset = self.asset(asset_id)
+        if not asset:
+            return None
+        path = self.root / "assets" / asset["filename"]
+        return path if path.is_file() else None
+
+    def available(self, asset_ids) -> set[str]:
+        """Which of these assets can be served right now, in one round trip.
+
+        Listing a page of products would otherwise cost one query and one stat
+        per picture, so the lookup is batched to match how the callers use it.
+        """
+        wanted = list(dict.fromkeys(item for item in asset_ids if item))
+        if not wanted:
+            return set()
+        placeholders = ",".join("?" for _ in wanted)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT id, document FROM assets WHERE id IN ({placeholders})", wanted
+            ).fetchall()
+        found = set()
+        for asset_id, document in rows:
+            filename = json.loads(document).get("filename")
+            if filename and (self.root / "assets" / filename).is_file():
+                found.add(asset_id)
+        return found
+
     def path(self, asset_id: str) -> Path:
         asset = self.asset(asset_id)
         if not asset:

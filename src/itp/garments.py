@@ -589,11 +589,19 @@ def public_merchant(merchant: dict, *, garment_count: int | None = None) -> dict
 
 
 def public_image(image: dict) -> dict:
+    """One gallery entry the browser can fetch.
+
+    `available` is the server's word on whether the file behind the row is
+    still there.  An entry that is not available is still listed — the shop
+    has to see it in order to replace it — but a card is expected to skip it
+    and use the next picture instead of showing a broken frame.
+    """
     return {
         "id": image["id"],
         "url": f"/api/garment-images/{image['id']}",
         "position": image["position"],
         "created": image["created"],
+        "available": image.get("available", True),
     }
 
 
@@ -641,8 +649,11 @@ def public_body_profile(profile: dict | None, job_id: str | None = None) -> dict
 class MerchantStore:
     """SQLite storage for merchant accounts, garments, looks and body profiles."""
 
-    def __init__(self, root: Path, settings=None):
+    def __init__(self, root: Path, settings=None, assets=None):
         self.root = Path(root).resolve()
+        # The store the picture files live in; without it this store can only
+        # report the rows, and every entry reads as available.
+        self.assets = assets
         self.root.mkdir(parents=True, exist_ok=True)
         self.db = self.root / "merchants.sqlite3"
         self._lock = threading.Lock()
@@ -1181,13 +1192,23 @@ class MerchantStore:
         return self._image_row(row)
 
     def images_for(self, garment_id: str) -> list[dict]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                "SELECT id, garment_id, asset_id, position, created FROM garment_images "
-                "WHERE garment_id = ? ORDER BY position, created",
-                (garment_id,),
-            ).fetchall()
-        return [self._image_row(row) for row in rows]
+        return self.images_for_many([garment_id]).get(garment_id, [])
+
+    def _mark_availability(self, grouped: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        """Say, for each picture, whether this process can actually serve it.
+
+        Doing it here rather than at each call site means no future caller can
+        forget to ask, and the answer costs one batched query per response.
+        """
+        if self.assets is None:
+            return grouped
+        known = self.assets.available(
+            image["asset_id"] for images in grouped.values() for image in images
+        )
+        return {
+            garment_id: [{**image, "available": image["asset_id"] in known} for image in images]
+            for garment_id, images in grouped.items()
+        }
 
     def images_for_many(self, garment_ids: list[str]) -> dict[str, list[dict]]:
         if not garment_ids:
@@ -1203,7 +1224,7 @@ class MerchantStore:
         for row in rows:
             image = self._image_row(row)
             grouped[image["garment_id"]].append(image)
-        return grouped
+        return self._mark_availability(grouped)
 
     def delete_image(self, merchant_id: str, garment_id: str, image_id: str) -> str | None:
         """Delete one image row; returns its asset id for file cleanup."""

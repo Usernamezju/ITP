@@ -2,6 +2,7 @@ import { ArrowLeft, MousePointerClick, Package } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from './api';
+import { GarmentCover } from './GarmentCover';
 import {
   clickRanges, fetchAnalytics, type ClickRange, type MerchantAnalytics as Analytics,
 } from './merchantApi';
@@ -104,9 +105,8 @@ export default function MerchantClickDetailPage() {
                 {data.items.map((item, index) => <li key={item.id}>
                   <span className="merchant-click-rank">{offset + index + 1}</span>
                   <span className="merchant-good-thumb">
-                    {item.images[0]
-                      ? <img src={item.images[0].url} alt={`${item.metrics.name} 商品图`} />
-                      : <i style={{ background: item.metrics.attributes?.color || '#cccccc' }} />}
+                    <GarmentCover images={item.images} color={item.metrics.attributes?.color}
+                      alt={`${item.metrics.name} 商品图`} />
                   </span>
                   <div className="merchant-good-text">
                     <strong>{item.metrics.name}</strong>

@@ -108,7 +108,12 @@ export function changePassword(currentPassword: string, newPassword: string) {
 
 // --- garments ----------------------------------------------------------------
 
-export type GarmentImage = { id: string; url: string; position: number; created: number };
+// `available` is the server's word on whether the file behind the row is still
+// there.  A picture that is not available is still listed so the shop can see
+// and replace it, but cards skip it rather than show a broken frame.
+export type GarmentImage = {
+  id: string; url: string; position: number; created: number; available?: boolean;
+};
 
 export type GarmentMetrics = {
   category: string;
