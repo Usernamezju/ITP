@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     sms_api_key: SecretStr = SecretStr("")
     merchant_token_hours: int = Field(default=12, ge=1, le=720)
     merchant_quota: int = Field(default=200, ge=0, le=100000)
-    merchant_free_upload_limit: int = Field(default=5, ge=0, le=100000)
+    merchant_free_upload_limit: int = Field(default=10, ge=0, le=100000)
+    demo_enabled: bool = False
     merchant_free_period_months: int = Field(default=1, ge=1, le=120)
     customer_membership_price_cents: int = Field(default=3000, ge=0, le=10**12)
     model_price_cents: int = Field(default=1500, ge=0, le=10**12)
@@ -103,6 +104,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_endpoints(self):
+        if self.demo_enabled and (self.environment not in {"development", "test"} or self.public_origin):
+            raise ValueError("Demo privileges are forbidden in production or public deployments")
         if self.sms_endpoint:
             sms_url = urlparse(self.sms_endpoint)
             if (sms_url.scheme != "https" or not sms_url.hostname or sms_url.username

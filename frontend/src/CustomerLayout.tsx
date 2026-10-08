@@ -1,4 +1,4 @@
-import { Box, CircleHelp, Clock3, Layers3, MessageSquarePlus, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
+import { Box, CalendarCheck, CircleHelp, Clock3, Crown, Layers3, MessageSquarePlus, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AccountAvatar } from './AccountPage';
@@ -9,6 +9,7 @@ import { FeedbackDialog } from './FeedbackDialog';
 const TITLES: Record<string, string> = {
   '/': '从一张图，到一个世界', '/tryon': '虚拟试穿', '/outfits': '穿搭推荐',
   '/merchant': '商家后台', '/history': '你的创作记录', '/account': '账户概览',
+  '/signin': '每日签到', '/pricing': '会员套餐',
 };
 
 const railClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'selected' : '');
@@ -43,6 +44,8 @@ function CustomerChrome() {
       <NavLink to="/outfits" className={railClass} aria-label="穿搭推荐" title="穿搭推荐"><Sparkles size={21} /></NavLink>
       <NavLink to="/merchant" className={railClass} aria-label="商家后台" title="商家后台"><Store size={21} /></NavLink>
       <NavLink to="/history" className={railClass} aria-label="任务记录" title="任务记录"><Clock3 size={21} /></NavLink>
+      <NavLink to="/signin" className={railClass} aria-label="每日签到" title="每日签到"><CalendarCheck size={21} /></NavLink>
+      <NavLink to="/pricing" className={railClass} aria-label="会员套餐" title="会员套餐"><Crown size={21} /></NavLink>
       <div className="rail-spacer" />
       <NavLink to="/account" className={railClass} aria-label="设置" title="账号与外观设置"><Settings2 size={21} /></NavLink>
       <a href="/docs" target="_blank" rel="noreferrer" aria-label="接口文档" title="接口文档"><CircleHelp size={20} /></a>

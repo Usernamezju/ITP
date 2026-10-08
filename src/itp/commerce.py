@@ -154,6 +154,59 @@ class CommerceStore:
                         (user_id, start, end, used),
                     )
                 conn.execute("INSERT INTO commerce_migrations VALUES ('period_usage_v1')")
+        from itp.benefits import BenefitsStore
+
+        self.benefits = BenefitsStore(self, settings)
+        with self.accounts.connect() as conn:
+            installed = conn.execute(
+                "SELECT 1 FROM commerce_migrations WHERE version='monthly_policy_v2'"
+            ).fetchone()
+        if not installed:
+            self.configure_plan(
+                "customer_monthly",
+                name="顾客月会员",
+                audience="customer",
+                price_cents=3000,
+                period_months=1,
+                entitlements={
+                    "customer_monthly": True,
+                    "personalized_recommendation": True,
+                    "daily_recommendation": 10,
+                    "daily_signin_points": 50,
+                    "makeup_cards": 5,
+                    "full_attendance_points": 100,
+                },
+                purchasable=True,
+            )
+            self.configure_plan(
+                "merchant_free",
+                name="免费版",
+                audience="merchant",
+                price_cents=0,
+                period_months=1,
+                entitlements={"garment_upload": 10, "ai_description": 0},
+                purchasable=False,
+            )
+            for plan_id, name, price, uploads, ai in (
+                ("merchant_basic", "初级版", 5000, 200, 50),
+                ("merchant_standard", "中级版", 10000, 500, 120),
+                ("merchant_premium", "高级版", 30000, True, 500),
+            ):
+                self.configure_plan(
+                    plan_id,
+                    name=name,
+                    audience="merchant",
+                    price_cents=price,
+                    period_months=1,
+                    entitlements={"garment_upload": uploads, "ai_description": ai},
+                )
+            with self.accounts.connect() as conn:
+                conn.execute("UPDATE commerce_plans SET purchasable=0 WHERE id='customer_annual'")
+
+            with self.accounts.connect() as conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO commerce_migrations VALUES ('monthly_policy_v2')"
+                )
 
     def _default(self, conn, plan_id, name, audience, price, months, rights, purchasable):
         conn.execute(
@@ -170,15 +223,6 @@ class CommerceStore:
             price_cents=settings.customer_membership_price_cents,
             period_months=12,
             entitlements={"personalized_recommendation": True},
-            purchasable=True,
-        )
-        self.configure_plan(
-            "merchant_free",
-            name="免费商家",
-            audience="merchant",
-            price_cents=0,
-            period_months=settings.merchant_free_period_months,
-            entitlements={"garment_upload": settings.merchant_free_upload_limit},
             purchasable=False,
         )
         for plan in settings.commercial_plans:
@@ -216,7 +260,7 @@ class CommerceStore:
         for feature, allowance in entitlements.items():
             if not isinstance(feature, str) or not feature or len(feature) > 80:
                 raise CommerceError("权益名称无效")
-            if feature == "garment_upload" and type(allowance) is not int:
+            if feature == "garment_upload" and type(allowance) is not int and allowance is not True:
                 raise CommerceError("上传次数必须为整数额度")
             if type(allowance) not in {int, bool} or (
                 type(allowance) is int and not 0 <= allowance <= 100000
@@ -268,7 +312,12 @@ class CommerceStore:
                 self._plan(row)
                 for row in conn.execute("SELECT * FROM commerce_plans WHERE active=1 ORDER BY id")
             ]
-        return {"currency": "CNY", "model_price_cents": self.model_price_cents, "plans": plans}
+        return {
+            "currency": "CNY",
+            "model_price_cents": self.model_price_cents,
+            "model_price_points": self.benefits.model_price_points,
+            "plans": plans,
+        }
 
     def _active_subscriptions(self, conn, user_id, now):
         return conn.execute(
@@ -290,61 +339,47 @@ class CommerceStore:
             (user_id, plan["id"]),
         ).fetchone()[0]
         starts = max(now, previous or now)
+        from itp.benefits import month_after
+
+        ends = month_after(starts, plan["period_months"])
+        # Keep the first anniversary anchor through month-end renewals.
+        if previous and previous >= now:
+            chain = conn.execute(
+                "SELECT starts,ends FROM subscriptions WHERE user_id=? "
+                "AND plan_id=? ORDER BY starts DESC",
+                (user_id, plan["id"]),
+            ).fetchall()
+            anchor = starts
+            months = 0
+            for old_start, old_end in chain:
+                if old_end != anchor:
+                    break
+                anchor = old_start
+                months += plan["period_months"]
+            ends = month_after(anchor, months + plan["period_months"])
+        sub_id = uuid4().hex
         conn.execute(
             "INSERT INTO subscriptions VALUES (?,?,?,?,?,?,?)",
             (
-                uuid4().hex,
+                sub_id,
                 user_id,
                 plan["id"],
                 starts,
-                add_months(starts, plan["period_months"]),
+                ends,
                 json.dumps(plan["entitlements"]),
                 order_id,
             ),
         )
+        if plan["entitlements"].get("customer_monthly") and plan["price_cents"] > 0:
+            self.benefits.grant(conn, user_id, "first_membership", "once", 1000, now=now)
+        if plan["entitlements"].get("customer_monthly"):
+            self.benefits.grant(conn, user_id, "makeup_cards", sub_id, 0, now=now)
 
     def usage(self, conn, user_id, feature="garment_upload", *, now=None):
-        now = int(time.time()) if now is None else now
-        user = conn.execute("SELECT role,created FROM merchants WHERE id=?", (user_id,)).fetchone()
-        if not user or user[0] != "merchant":
-            raise CommerceError("需要商家身份")
-        free = self._plan(
-            conn.execute("SELECT * FROM commerce_plans WHERE id='merchant_free'").fetchone()
-        )
-        start, end = period_at(int(user[1]), free["period_months"], now)
-        scope, limit = "merchant_free", free["entitlements"].get(feature, 0)
-        choices = self._active_subscriptions(conn, user_id, now)
-        # Overlapping tiers do not sum silently; the greatest allowance wins.
-        for sub_id, _, sub_start, sub_end, rights in choices:
-            allowance = json.loads(rights).get(feature, 0)
-            if type(allowance) is int and allowance > limit:
-                scope, start, end, limit = sub_id, sub_start, sub_end, allowance
-        if type(limit) is not int:
-            raise CommerceError("次数权益必须配置为整数")
-        row = conn.execute(
-            "SELECT used FROM usage_buckets WHERE user_id=? AND feature=? AND scope=? AND starts=?",
-            (user_id, feature, scope, start),
-        ).fetchone()
-        used = row[0] if row else 0
-        return {
-            "feature": feature,
-            "scope": scope,
-            "starts": start,
-            "ends": end,
-            "limit": limit,
-            "used": used,
-            "remaining": max(0, limit - used),
-        }
+        return self.benefits.merchant_usage(conn, user_id, feature, now=now)
 
     def consume_upload(self, conn, user_id, *, now=None):
-        bucket = self.usage(conn, user_id, now=now)
-        if bucket["remaining"] <= 0:
-            raise CommerceError(f"本周期上传额度已用完（{bucket['limit']} 次）；删除商品不恢复额度")
-        conn.execute(
-            "INSERT INTO usage_buckets VALUES (?,?,?,?,?,1) "
-            "ON CONFLICT(user_id,feature,scope,starts) DO UPDATE SET used=used+1",
-            (user_id, bucket["feature"], bucket["scope"], bucket["starts"], bucket["ends"]),
-        )
+        return self.benefits.consume_upload(conn, user_id, now=now)
 
     def _ledger(self, conn, user_id, delta, kind, reference, *, now=None):
         if type(delta) is not int or abs(delta) > MAX_CENTS:
@@ -396,35 +431,56 @@ class CommerceStore:
         with self.accounts.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT job_id,fingerprint,state,amount_cents FROM model_charges "
+                "SELECT job_id,fingerprint,state,amount_cents,amount_points FROM model_charges "
                 "WHERE user_id=? AND idempotency_key=?",
                 (user_id, idempotency_key),
             ).fetchone()
             if row:
                 if row[1] != fingerprint:
                     raise IdempotencyConflict("相同幂等键不可用于不同的建模请求")
-                return {"job_id": row[0], "state": row[2], "amount_cents": row[3], "replayed": True}
+                return {
+                    "job_id": row[0],
+                    "state": row[2],
+                    "amount_cents": row[3],
+                    "amount_points": row[4],
+                    "replayed": True,
+                }
             job_id = uuid4().hex
-            amount = cents(self.model_price_cents)
-            self._ledger(conn, user_id, -amount, "model_debit", job_id, now=now)
+            amount = 0 if self.benefits.demo(conn, user_id) else self.benefits.model_price_points
+            self.benefits.ledger_change(conn, user_id, -amount, "model_debit", job_id, now=now)
             conn.execute(
-                "INSERT INTO model_charges VALUES (?,?,?,?,?,'reserved',?,?)",
-                (job_id, user_id, amount, idempotency_key, fingerprint, now, now),
+                "INSERT INTO model_charges "
+                "(job_id,user_id,amount_cents,idempotency_key,fingerprint,state,"
+                "created,updated,amount_points) "
+                "VALUES (?,?,0,?,?,'reserved',?,?,?)",
+                (job_id, user_id, idempotency_key, fingerprint, now, now, amount),
             )
-        return {"job_id": job_id, "state": "reserved", "amount_cents": amount, "replayed": False}
+        return {
+            "job_id": job_id,
+            "state": "reserved",
+            "amount_cents": 0,
+            "amount_points": amount,
+            "replayed": False,
+        }
 
     def finish_model(self, job_id, *, succeeded: bool, valid_result: bool, now=None):
         now = int(time.time()) if now is None else now
         with self.accounts.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT user_id,amount_cents,state FROM model_charges WHERE job_id=?", (job_id,)
+                "SELECT user_id,amount_cents,state,amount_points FROM model_charges WHERE job_id=?",
+                (job_id,),
             ).fetchone()
             if not row or row[2] != "reserved":
                 return
             state = "completed" if succeeded and valid_result else "refunded"
             if state == "refunded":
-                self._ledger(conn, row[0], row[1], "model_refund", job_id, now=now)
+                if row[3] is None:
+                    self._ledger(conn, row[0], row[1], "model_refund", job_id, now=now)
+                else:
+                    self.benefits.ledger_change(
+                        conn, row[0], row[3], "model_refund", job_id, now=now
+                    )
             conn.execute(
                 "UPDATE model_charges SET state=?,updated=? WHERE job_id=?", (state, now, job_id)
             )
@@ -476,6 +532,7 @@ class CommerceStore:
         return {
             "currency": "CNY",
             "balance_cents": balance[0] if balance else 0,
+            "balance_points": self.benefits.summary(user_id, now=now)["balance_points"],
             "entitlements": rights,
             "subscriptions": [
                 {
@@ -488,6 +545,9 @@ class CommerceStore:
                 for row in rows
             ],
             "upload_usage": usage,
+            "ai_usage": self.benefits.merchant_usage_for(user_id, "ai_description", now=now)
+            if user and user[0] == "merchant"
+            else None,
         }
 
     def ledger(self, user_id, *, limit=50, offset=0):
@@ -525,6 +585,17 @@ class CommerceStore:
             wallets = conn.execute(
                 "SELECT COUNT(*), COALESCE(SUM(balance_cents), 0) FROM wallets"
             ).fetchone()
+            points = conn.execute(
+                "SELECT COUNT(*),COALESCE(SUM(balance),0) FROM point_wallets"
+            ).fetchone()
+            point_charges = {
+                state: {"count": count, "amount_points": amount}
+                for state, count, amount in conn.execute(
+                    "SELECT state,COUNT(*),"
+                    "COALESCE(SUM(amount_points),0) FROM model_charges "
+                    "WHERE amount_points IS NOT NULL GROUP BY state"
+                )
+            }
             ledger = conn.execute(
                 "SELECT l.id, l.user_id, m.name, l.delta_cents, l.balance_cents, l.kind, "
                 "l.reference, l.created FROM wallet_ledger l "
@@ -537,11 +608,21 @@ class CommerceStore:
                 for state in ("reserved", "completed", "refunded")
             },
             "wallets": {"count": wallets[0], "total_balance_cents": wallets[1]},
+            "points": {"count": points[0], "total_balance_points": points[1]},
+            "point_model_charges": point_charges,
             "recent_ledger": [
                 dict(
                     zip(
-                        ("id", "user_id", "account_name", "delta_cents", "balance_cents",
-                         "kind", "reference", "created"),
+                        (
+                            "id",
+                            "user_id",
+                            "account_name",
+                            "delta_cents",
+                            "balance_cents",
+                            "kind",
+                            "reference",
+                            "created",
+                        ),
                         row,
                         strict=False,
                     )

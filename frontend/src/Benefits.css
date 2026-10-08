@@ -1,0 +1,49 @@
+.benefits-page { width: min(1320px, 100%); margin: 0 auto; padding: 24px; }
+.points-panel { grid-column: 1 / -1; }
+.points-total { font-size: 32px; color: var(--theme-primary); margin: 0 10px; }
+.benefit-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.benefit-actions a { text-decoration: none; }
+.point-entry { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--theme-border); padding: 12px 0; }
+.point-entry small { display: block; font-size: 12px; margin-top: 4px; }
+.signin-card { max-width: 850px; margin: auto; }
+.signin-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 20px 0; }
+.signin-stats span { display: block; font-size: 13px; }
+.signin-stats strong { display: block; font-size: 22px; margin-top: 8px; }
+.calendar-heading { display: flex; justify-content: space-between; align-items: center; margin: 24px 0 12px; }
+.signin-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.calendar-weekday { text-align: center; padding: 8px; }
+.calendar-day { min-height: 78px; padding: 10px 2px; border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-surface); color: inherit; }
+.calendar-day strong, .calendar-day small { display: block; }
+.calendar-day strong { font-size: 18px; }
+.calendar-day small { font-size: 12px; margin-top: 5px; }
+.calendar-day:disabled { opacity: 1; cursor: default; }
+.calendar-day.signed, .calendar-day.supplemented, .calendar-day.today { border-color: var(--theme-primary); }
+.calendar-day.signed strong, .calendar-day.supplemented strong { color: var(--theme-primary); }
+.calendar-day.future { opacity: .55; }
+.calendar-legend { font-size: 13px; }
+.makeup-dialog { width: min(450px, calc(100% - 32px)); padding: 24px; border-radius: 12px; border: 1px solid var(--theme-border); background: var(--theme-surface); color: inherit; }
+.makeup-dialog::backdrop { background: #0007; }
+.plan-sections { width: 100%; margin: 24px 0; }
+.plan-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.plan-card { min-width: 0; display: flex; flex-direction: column; padding: 22px; border: 1px solid var(--theme-border); border-radius: 12px; background: var(--theme-surface); }
+.plan-card.recommended { border: 2px solid var(--theme-primary); padding: 21px; }
+.plan-card h4 { font-size: 20px; margin: 12px 0; }
+.plan-card .plan-price { font-size: 30px; font-weight: 600; margin: 0; color: var(--theme-primary); }
+.plan-sections [aria-label="顾客会员套餐"] .plan-cards { grid-template-columns: minmax(0, 450px); }
+.plan-price small { font-size: 13px; font-weight: 400; }
+.plan-card p, .plan-card li { line-height: 1.7; font-size: 14px; }
+.plan-card ul { padding-left: 18px; flex: 1; }
+.plan-card .button { white-space: normal; height: auto; min-height: 44px; }
+.plan-badges { display: flex; gap: 8px; min-height: 20px; font-size: 12px; color: var(--theme-primary); }
+.pricing-page .payment-panel { display: block; }
+.pricing-page .account-card { margin-bottom: 20px; }
+.payment-recharge-card .plan-sections { grid-column: 1 / -1; }
+@media (max-width: 650px) {
+  .benefits-page { padding: 16px 8px; }
+  .signin-stats { grid-template-columns: repeat(2, 1fr); }
+  .signin-calendar { gap: 3px; }
+  .calendar-day { min-height: 66px; }
+  .calendar-day small { font-size: 11px; }
+  .plan-cards { grid-template-columns: 1fr; }
+  .point-entry { flex-wrap: wrap; }
+}

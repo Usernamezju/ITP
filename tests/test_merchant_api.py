@@ -230,7 +230,7 @@ def test_register_login_and_me(env):
     assert me.status_code == 200
     assert set(me.json()) == {
         "merchant_id", "name", "display_name", "contact", "created", "quota",
-        "garment_count", "upload_usage", "avatar_key",
+        "garment_count", "upload_usage", "avatar_key", "ai_usage",
     }
     assert me.json()["avatar_key"] is None  # a fresh shop uses the default avatar
     assert me.json()["garment_count"] == 0
@@ -547,7 +547,7 @@ def test_quota_and_sku_conflicts(env):
     assert create_garment(client, token, name="二").status_code == 201
     blocked = create_garment(client, token, name="三")
     assert blocked.status_code == 409
-    assert "本周期上传额度" in blocked.json()["detail"]
+    assert "本期新增商品额度" in blocked.json()["detail"]
 
     client.app.state.commerce.configure_plan('merchant_free', name='Free', audience='merchant', price_cents=0,
         period_months=1, entitlements={'garment_upload': 5}, purchasable=False)

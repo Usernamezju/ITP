@@ -376,6 +376,8 @@ def create_app(
                     "ClothiNation already uses this data directory; run one worker only"
                 ) from exc
             store.sweep_stale()
+            with merchants.connect() as conn:
+                conn.execute("UPDATE quota_events SET state='refunded' WHERE state='reserved'")
             merchants.commerce.reconcile_models(store.job, pipeline.has_valid_result)
             janitor_thread = threading.Thread(target=janitor, daemon=True, name="itp-cleanup")
             janitor_thread.start()
@@ -422,6 +424,8 @@ def create_app(
     app.state.product_ai = product_ai
     from itp.phones import phone_router
     app.include_router(phone_router(merchants))
+    from itp.benefits import benefits_router
+    app.include_router(benefits_router(merchants))
     app.include_router(payment_router(app.state.payments))
     from itp.feedback import feedback_router
     app.include_router(feedback_router(merchants))
@@ -1212,7 +1216,8 @@ def create_app(
                                  history_preferences=history)
 
     @app.post("/api/outfits/recommend")
-    def recommend_for_browser(body: OutfitRecommendRequest, user: dict = Depends(current_user)):
+    def recommend_for_browser(body: OutfitRecommendRequest, request: Request,
+                              user: dict = Depends(current_user)):
         """Score one recommendation from data the browser uploaded just now.
 
         The measurements and the model exist only for this request: the file is
@@ -1232,8 +1237,14 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        reference = request.headers.get("idempotency-key", "")
         try:
-            return recommend_outfits(
+            merchants.commerce.benefits.reserve_call(user["id"], "recommendation", reference,
+                                                     body.model_dump())
+        except CommerceError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        try:
+            result = recommend_outfits(
                 store,
                 merchants,
                 asset_id=body.asset_id,
@@ -1245,6 +1256,11 @@ def create_app(
                 pose_mode=body.pose_mode,
                 history_preferences=history,
             )
+            merchants.commerce.benefits.finish_call(user["id"], "recommendation", reference, {})
+            return result
+        except Exception:
+            merchants.commerce.benefits.finish_call(user["id"], "recommendation", reference)
+            raise
         finally:
             if body.asset_id:
                 store.discard(body.asset_id)
@@ -1336,7 +1352,7 @@ def create_app(
         return {"access_token": token, "token_type": "bearer", "expires_in": expires_in}
 
     @app.post("/api/merchant/import-link")
-    async def merchant_import_link(body: ProductImportRequest,
+    async def merchant_import_link(body: ProductImportRequest, request: Request,
                                    merchant: dict = Depends(current_merchant)):
         """Describe a product link for the form; nothing is stored or published.
 
@@ -1345,14 +1361,26 @@ def create_app(
         the merchant still decides what to save.
         """
         product_limiter.check(("product-import", merchant["id"]), attempts=20, seconds=3600)
+        reference = request.headers.get("idempotency-key", "")
+        try:
+            reservation = merchants.commerce.benefits.reserve_call(merchant["id"], "ai_description",
+                reference, body.model_dump())
+        except CommerceError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if reservation["replayed"]:
+            return reservation["result"]
         try:
             data, _content_type, source = await asyncio.to_thread(
                 fetch_product_image, body.url)
             preview, width, height = await asyncio.to_thread(preview_jpeg, data)
             fields = await asyncio.to_thread(product_ai.describe, preview)
         except ProductAiError as exc:
+            merchants.commerce.benefits.finish_call(merchant["id"], "ai_description", reference)
             raise HTTPException(422, str(exc)) from exc
-        return {
+        except Exception:
+            merchants.commerce.benefits.finish_call(merchant["id"], "ai_description", reference)
+            raise
+        result = {
             "fields": fields,
             "image": {
                 "data_url": "data:image/jpeg;base64," + base64.b64encode(preview).decode(),
@@ -1362,12 +1390,15 @@ def create_app(
             },
             "model": app.state.settings.product_ai_model,
         }
+        merchants.commerce.benefits.finish_call(merchant["id"], "ai_description", reference, result)
+        return result
 
     @app.get("/api/merchant/me")
     def merchant_me(merchant: dict = Depends(current_merchant)):
         usage = merchants.commerce.summary(merchant["id"])["upload_usage"]
         return public_merchant(merchant, garment_count=merchants.count_garments(merchant["id"])) | {
-            "quota": usage["limit"], "upload_usage": usage}
+            "quota": usage["limit"], "upload_usage": usage,
+            "ai_usage": merchants.commerce.benefits.merchant_usage_for(merchant["id"], "ai_description")}
 
     @app.post("/api/merchant/password")
     def merchant_change_password(

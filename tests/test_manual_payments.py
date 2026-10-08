@@ -88,7 +88,7 @@ def create_order(client, token, *, provider="manual_wechat", kind="recharge", am
         **auth(token), "Idempotency-Key": f"manual-order-{kind}-{amount}-{provider}",
         "Content-Type": "application/json",
     }, json={"kind": kind, "provider": provider,
-             **({"amount_cents": amount} if kind == "recharge" else {"plan_id": "customer_annual"})})
+             **({"amount_cents": amount} if kind == "recharge" else {"plan_id": "customer_monthly"})})
     assert response.status_code == 201, response.text
     return response.json()
 

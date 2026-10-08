@@ -52,8 +52,12 @@ async function openAccount(page: Page, signedIn = false) {
       await route.fulfill({ json: { items: [] } });
     } else if (path === '/api/payments/methods') {
       await route.fulfill({ json: { methods: [] } });
+    } else if (path === '/api/account/points') {
+      await route.fulfill({ json: { balance_points: 200, model_price_points: 800, recommend_limit: 2, recommend_used: 0, first_month: true, first_month_ends: 1800000000 } });
+    } else if (path === '/api/account/points/ledger') {
+      await route.fulfill({ json: { items: [] } });
     } else if (path === '/api/pricing') {
-      await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
+      await route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, model_price_points: 800, plans: [
         { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567,
           period_months: 12, purchasable: true, entitlements: {} }] } });
     } else if (path === '/api/account/merchant') {
@@ -97,7 +101,7 @@ test('avatar opens unified registration and restores the session on reload', asy
   await expect(page.getByText('¥87.65', { exact: true })).toBeVisible();
   // The price now lives inside the collapsed 会员与使用权益 section.
   await page.getByText('会员与使用权益').click();
-  await expect(page.getByText('人体建模：¥23.45 / 次', { exact: true })).toBeVisible();
+  await expect(page.locator('#account-member-details')).toContainText('基础人体建模 800 积分 / 次，失败退还');
   await expect(page.getByText('个性化推荐年会员：¥45.67 / 12 个月')).toBeVisible();
   expect(writes.find((item) => item.path === '/api/auth/register')?.body.role).toBe('customer');
   await page.reload();

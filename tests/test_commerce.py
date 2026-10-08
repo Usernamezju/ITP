@@ -45,6 +45,7 @@ def commerce(tmp_path):
 def credit(commerce, user_id, amount=10000, reference="verified-order"):
     with commerce.accounts.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        commerce.benefits.ledger_change(conn, user_id, amount, "test_grant", reference)
         return commerce.credit_verified_order(conn, user_id, amount, reference)
 
 
@@ -66,7 +67,7 @@ def test_defaults_and_custom_commercial_plan(commerce):
     plans = {p["id"]: p for p in prices["plans"]}
     assert prices["model_price_cents"] == 1500 and plans["customer_annual"]["price_cents"] == 3000
     assert plans["customer_annual"]["period_months"] == 12
-    assert plans["merchant_free"]["entitlements"]["garment_upload"] == 5
+    assert plans["merchant_free"]["entitlements"]["garment_upload"] == 10
     c.configure_plan(
         "business",
         name="Business",
@@ -99,13 +100,14 @@ def test_delete_does_not_restore_consumed_uploads_and_duplicate_sku_rolls_back(c
     assert c.summary(user)["upload_usage"]["used"] == 1
     store.delete_garment(user, first["id"])
     assert c.summary(user)["upload_usage"]["used"] == 1
-    for n in range(4):
+    for n in range(9):
         store.create_garment(user, {"name": str(n), "status": "draft"})
     with pytest.raises(QuotaExceeded):
         store.create_garment(user, {"name": "sixth", "status": "draft"})
-    assert store.count_garments(user) == 4
+    assert store.count_garments(user) == 9
     bucket = c.summary(user)["upload_usage"]
-    assert c.summary(user, now=bucket["ends"])["upload_usage"]["used"] == 0
+    assert c.summary(user, now=bucket["ends"])["upload_usage"]["remaining"] == 0
+    assert c.summary(user, now=bucket["ends"])["upload_usage"]["limit"] == 0
 
 
 def test_cross_connection_upload_race_cannot_overrun(commerce):
@@ -120,8 +122,8 @@ def test_cross_connection_upload_race_cannot_overrun(commerce):
             return False
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        assert sum(pool.map(upload, range(12))) == 5
-    assert c.summary(user)["upload_usage"]["used"] == 5
+        assert sum(pool.map(upload, range(12))) == 10
+    assert c.summary(user)["upload_usage"]["used"] == 10
 
 
 def test_ledger_credit_idempotency_and_restart(commerce):
@@ -143,42 +145,42 @@ def test_model_reservation_idempotency_and_refund_once(commerce):
     c, user = commerce
     credit(c, user)
     reserved = c.reserve_model(user, "same-request-key", {"front": "sensitive-file-id"})
-    assert c.summary(user)["balance_cents"] == 8500
+    assert c.summary(user)["balance_points"] == 9200
     assert c.reserve_model(user, "same-request-key", {"front": "sensitive-file-id"})["replayed"]
     with pytest.raises(IdempotencyConflict):
         c.reserve_model(user, "same-request-key", {"front": "different"})
     c.finish_model(reserved["job_id"], succeeded=False, valid_result=True)
     c.finish_model(reserved["job_id"], succeeded=True, valid_result=True)
-    assert c.summary(user)["balance_cents"] == 10000
-    assert [entry["kind"] for entry in c.ledger(user)].count("model_refund") == 1
+    assert c.summary(user)["balance_points"] == 10000
+    assert [entry["kind"] for entry in c.benefits.ledger(user)].count("model_refund") == 1
     with c.accounts.connect() as conn:
         row = conn.execute("SELECT fingerprint,state FROM model_charges").fetchone()
         assert row[1] == "refunded" and "sensitive-file-id" not in str(row)
 
 
 @pytest.mark.parametrize(
-    "succeeded,valid,expected", [(True, True, 8500), (True, False, 10000), (False, False, 10000)]
+    "succeeded,valid,expected", [(True, True, 9200), (True, False, 10000), (False, False, 10000)]
 )
 def test_only_successful_valid_mesh_retains_debit(commerce, succeeded, valid, expected):
     c, user = commerce
     credit(c, user)
     job = c.reserve_model(user, "a-model-request", {"front": "x"})
     c.finish_model(job["job_id"], succeeded=succeeded, valid_result=valid)
-    assert c.summary(user)["balance_cents"] == expected
+    assert c.summary(user)["balance_points"] == expected
 
 
 def test_insufficient_funds_creates_no_debit_or_charge(commerce):
     c, user = commerce
     with pytest.raises(InsufficientFunds):
         c.reserve_model(user, "a-model-request", {})
-    assert c.ledger(user) == []
+    assert c.benefits.ledger(user) == []
     with c.accounts.connect() as conn:
         assert conn.execute("SELECT count(*) FROM model_charges").fetchone()[0] == 0
 
 
 def test_duplicate_and_parallel_debits_are_serialized(commerce):
     c, user = commerce
-    credit(c, user, 3000)
+    credit(c, user, 1600)
 
     def debit(n):
         try:
@@ -189,7 +191,7 @@ def test_duplicate_and_parallel_debits_are_serialized(commerce):
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(debit, range(10)))
     assert sum(result is not None for result in results) == 2
-    assert c.summary(user)["balance_cents"] == 0
+    assert c.summary(user)["balance_points"] == 0
 
 
 def test_orphaned_crash_reservations_refund_not_live_jobs(commerce):
@@ -199,7 +201,7 @@ def test_orphaned_crash_reservations_refund_not_live_jobs(commerce):
     live = c.reserve_model(user, "live-request", {}, now=1)
     c.refund_orphaned_models({live["job_id"]}, before=2)
     c.refund_orphaned_models({live["job_id"]}, before=2)
-    assert c.summary(user)["balance_cents"] == 8500
+    assert c.summary(user)["balance_points"] == 9200
 
 
 def test_subscription_snapshots_renewal_and_expiry(commerce):
@@ -233,7 +235,7 @@ def test_subscription_snapshots_renewal_and_expiry(commerce):
     )
     assert c.summary(user, now=now)["upload_usage"]["limit"] == 30
     expired = c.summary(user, now=summary["subscriptions"][-1]["ends"])
-    assert expired["upload_usage"]["limit"] == 5 and not expired["entitlements"]
+    assert expired["upload_usage"]["limit"] == 0 and not expired["entitlements"]
 
 
 def triangle_glb():
@@ -269,17 +271,17 @@ def test_mesh_validation_rejects_magic_only_and_truncated_results(tmp_path):
 def test_paid_model_api_replay_failure_refund_and_owner_isolation(settings, image_bytes):
     app = create_app(settings, start_worker=False)
     with TestClient(app, base_url="http://localhost:8000") as client:
-        assert client.get("/api/account/commerce").status_code == 401
+        assert client.get("/api/account/points").status_code == 401
         assert client.post("/api/jobs", json={"front": "a" * 32}).status_code == 401
         fund_client(client)
         photo = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
         body = {"front": photo["id"]}
-        before = client.get("/api/account/commerce").json()["balance_cents"]
+        before = client.get("/api/account/points").json()["balance_points"]
         first = client.post("/api/jobs", json=body)
         assert first.status_code == 201
         duplicate = client.post("/api/jobs", json=body)
         assert duplicate.json()["id"] == first.json()["id"]
-        assert client.get("/api/account/commerce").json()["balance_cents"] == before - 1500
+        assert client.get("/api/account/points").json()["balance_points"] == before - 800
         client.headers["Idempotency-Key"] = "new-model-request"
         assert client.post("/api/jobs", json=body).status_code == 201
         # No network call: a local worker error exercises real automatic refund.
@@ -288,12 +290,12 @@ def test_paid_model_api_replay_failure_refund_and_owner_isolation(settings, imag
         )
         job = app.state.store.job(first.json()["id"])
         app.state.pipeline.run_job(job)
-        assert client.get("/api/account/commerce").json()["balance_cents"] == before - 1500
+        assert client.get("/api/account/points").json()["balance_points"] == before - 800
         assert (
             len(
                 [
                     e
-                    for e in client.get("/api/account/ledger").json()["items"]
+                    for e in client.get("/api/account/points/ledger").json()["items"]
                     if e["kind"] == "model_refund"
                 ]
             )
@@ -332,12 +334,12 @@ def test_successful_pipeline_keeps_charge_and_rejection_refunds(settings, image_
         fund_client(client)
         photo = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
         first = client.post("/api/jobs", json={"front": photo["id"], "texture": False}).json()
-        before = app.state.commerce.summary(first["owner_id"])["balance_cents"]
+        before = app.state.commerce.summary(first["owner_id"])["balance_points"]
         app.state.pipeline.cloud = Cloud()
         app.state.pipeline.fetch = lambda url, path, **kwargs: path.write_bytes(triangle_glb())
         app.state.pipeline.run_job(app.state.store.job(first["id"]))
         assert client.get(f"/api/jobs/{first['id']}").json()["state"] == "succeeded"
-        assert app.state.commerce.summary(first["owner_id"])["balance_cents"] == before
+        assert app.state.commerce.summary(first["owner_id"])["balance_points"] == before
         client.headers["Idempotency-Key"] = "pose-review-request"
         photo = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
         second = client.post("/api/jobs", json={"front": photo["id"]}).json()
@@ -348,7 +350,7 @@ def test_successful_pipeline_keeps_charge_and_rejection_refunds(settings, image_
             client.post(f"/api/jobs/{second['id']}/review", json={"approve": False}).status_code
             == 200
         )
-        assert app.state.commerce.summary(first["owner_id"])["balance_cents"] == before
+        assert app.state.commerce.summary(first["owner_id"])["balance_points"] == before
 
 
 def test_enqueue_exception_refunds_and_other_users_cannot_read_jobs(settings, image_bytes):
@@ -357,11 +359,11 @@ def test_enqueue_exception_refunds_and_other_users_cannot_read_jobs(settings, im
         fund_client(client)
         photo = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
         first = client.post("/api/jobs", json={"front": photo["id"]}).json()
-        before = app.state.commerce.summary(first["owner_id"])["balance_cents"]
+        before = app.state.commerce.summary(first["owner_id"])["balance_points"]
         client.headers["Idempotency-Key"] = "failed-enqueue-request"
         app.state.store.create_job = lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk"))
         assert client.post("/api/jobs", json={"front": photo["id"]}).status_code == 500
-        assert app.state.commerce.summary(first["owner_id"])["balance_cents"] == before
+        assert app.state.commerce.summary(first["owner_id"])["balance_points"] == before
         client.headers.pop("Authorization")
         assert (
             client.post(
@@ -391,6 +393,6 @@ def test_reconciliation_settles_terminal_and_missing_jobs(commerce):
         lambda job_id: {"state": "succeeded"} if job_id == complete["job_id"] else None,
         lambda job: True,
     )
-    assert c.summary(user)["balance_cents"] == 8500
+    assert c.summary(user)["balance_points"] == 9200
     c.finish_model(missing["job_id"], succeeded=False, valid_result=False)
-    assert c.summary(user)["balance_cents"] == 8500
+    assert c.summary(user)["balance_points"] == 9200

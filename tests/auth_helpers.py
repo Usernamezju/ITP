@@ -23,6 +23,8 @@ def fund_client(client, *, existing_jobs=False):
     with store.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         store.commerce.credit_verified_order(conn, user["id"], 1000000, "verified-test-recharge")
+        store.commerce.benefits.ledger_change(conn, user["id"], 1000000,
+                                              "test_grant", "verified-test-points")
     if existing_jobs:
         for job in client.app.state.store.jobs():
             job["owner_id"] = user["id"]

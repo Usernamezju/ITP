@@ -4,10 +4,11 @@ import { accountApi, type Account } from './accountApi';
 import { yuanText } from './money';
 import { PaymentPanel } from './PaymentPanel';
 import './CommercePanel.css';
+import { PointsPanel } from './PointsPanel';
 
 export type Plan = { id: string; name: string; audience: string; price_cents: number;
   period_months: number; purchasable: boolean; entitlements: Record<string, number | boolean> };
-export type Pricing = { currency: string; model_price_cents: number; plans: Plan[] };
+export type Pricing = { currency: string; model_price_cents: number; model_price_points: number; plans: Plan[] };
 type Summary = { balance_cents: number; entitlements: Record<string, number | boolean>;
   subscriptions: { id: string; plan_id: string; starts: number; ends: number }[];
   upload_usage: { used: number; limit: number; remaining: number; ends: number } | null };
@@ -47,8 +48,8 @@ export function CommercePanel({ user, children }: { user: Account; children?: Re
   function reload() { setRefresh((value) => value + 1); }
   const now = Date.now() / 1000;
   const activeSubscriptions = data?.summary.subscriptions.filter((subscription) => subscription.starts <= now && subscription.ends > now) || [];
-  const plans = data?.pricing.plans.filter((plan) => plan.purchasable && (plan.audience === 'customer' || user.role === 'merchant')) || [];
-  const memberPlan = plans.find((plan) => plan.audience === 'customer') || plans[0];
+  const plans = data?.pricing.plans.filter((plan) => plan.audience === 'customer' || user.role === 'merchant') || [];
+  const memberPlan = plans.find((plan) => plan.id === 'customer_monthly') || plans.find((plan) => plan.purchasable);
   function focusRecharge() { document.getElementById('wallet-recharge-amount')?.focus(); }
   function showMembership() {
     const details = document.getElementById('account-member-details') as HTMLDetailsElement | null;
@@ -80,7 +81,8 @@ export function CommercePanel({ user, children }: { user: Account; children?: Re
       </div>
     {!data && <p role="status" className="account-funds-loading">{loading ? '正在读取钱包…' : '暂时无法读取钱包，请点击刷新重试。'}</p>}
     {children}
-    <PaymentPanel key={user.id} plans={plans} onPaid={() => { setLedgerOffset(0); reload(); }} />
+    <PointsPanel key={`${user.id}:${refresh}`} />
+    <PaymentPanel key={user.id} plans={plans} currentPlans={activeSubscriptions.map((s) => s.plan_id)} onPaid={() => { setLedgerOffset(0); reload(); }} />
       <section id="account-ledger" className="account-card commerce-ledger" aria-label="最近资金流水" aria-busy={ledgerLoading}>
         <div className="commerce-heading"><h3>最近资金流水</h3>
           <button type="button" className="text-button" disabled={ledgerLoading} onClick={reload}>刷新流水<RefreshCw size={14} /></button></div>
@@ -109,8 +111,7 @@ export function CommercePanel({ user, children }: { user: Account; children?: Re
     <details id="account-member-details" className="account-card commerce-benefits">
       <summary>会员与使用权益</summary>
       {!data ? <p>权益信息暂未读取成功，请刷新钱包重试。</p> : <>
-        <p>人体建模：¥{yuanText(data.pricing.model_price_cents)} / 次</p>
-        {data.summary.balance_cents < data.pricing.model_price_cents && <p className="commerce-warning">余额不足以支付一次建模，请先充值。</p>}
+        <p>基础人体建模 {data.pricing.model_price_points} 积分 / 次，失败退还</p>
         <p>个性化推荐权益：{data.summary.entitlements.personalized_recommendation ? '已开通' : '未开通'}</p>
         {data.summary.subscriptions.map((subscription) => <p key={subscription.id}>
           {data.pricing.plans.find((plan) => plan.id === subscription.plan_id)?.name || subscription.plan_id}

@@ -147,8 +147,8 @@ export function CustomerProvider({ children }: { children: ReactNode }) {
   }, [account.user?.id]);
   useEffect(() => {
     let alive = true;
-    void api<{ model_price_cents: number }>('/api/pricing').then((pricing) => {
-      if (alive) setModelPrice(pricing.model_price_cents);
+    void api<{ model_price_points: number }>('/api/pricing').then((pricing) => {
+      if (alive) setModelPrice(pricing.model_price_points);
     }).catch(() => {});
     return () => { alive = false; };
   }, []);

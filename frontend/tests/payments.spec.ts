@@ -38,6 +38,8 @@ async function openPayments(page: Page, enabled = true, options: { orders?: Orde
     if (path === '/api/jobs') return route.fulfill({ json: [] });
     if (path === '/api/account/me') return route.fulfill({ json: { id: 'alice', name: 'alice', display_name: 'Alice',
       contact: '', role: 'customer', created: 1 } });
+    if (path === '/api/account/points') return route.fulfill({ json: { balance_points: 200, model_price_points: 800, recommend_limit: 2, recommend_used: 0, first_month: true, first_month_ends: 1800000000 } });
+    if (path === '/api/account/points/ledger') return route.fulfill({ json: { items: [] } });
     if (path === '/api/pricing') return route.fulfill({ json: { currency: 'CNY', model_price_cents: 2345, plans: [
       { id: 'customer_annual', name: '个性化推荐年会员', audience: 'customer', price_cents: 4567, period_months: 12, purchasable: true, entitlements: {} }] } });
     if (path.startsWith('/api/payments/manual/qr/')) return route.fulfill({ body: MANUAL_QR, contentType: 'image/png' });

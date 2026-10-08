@@ -4,6 +4,7 @@ import { accountApi } from './accountApi';
 import { api } from './api';
 import { parseYuan, yuanText } from './money';
 import type { Plan } from './CommercePanel';
+import { PlanCards } from './PlanCards';
 
 type Method = { id: string; name: string; ready: boolean };
 type Order = { id: string; kind: string; provider: string; amount_cents: number; state: string;
@@ -21,7 +22,7 @@ function OrderStatus({ order }: { order: Order }) {
     {states[order.state] || '订单状态待确认'}</span>;
 }
 
-export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => void }) {
+export function PaymentPanel({ plans, currentPlans = [], onPaid }: { plans: Plan[]; currentPlans?: string[]; onPaid: () => void }) {
   const [methods, setMethods] = useState<Method[]>([]);
   const [provider, setProvider] = useState('');
   const [amount, setAmount] = useState('');
@@ -130,9 +131,7 @@ export function PaymentPanel({ plans, onPaid }: { plans: Plan[]; onPaid: () => v
     </select></label> : <div className="commerce-warning"><p>平台暂未开放在线支付</p><small>支付渠道未配置。请稍后重试或联系平台；已有余额仍可正常使用。</small></div>}
     {error && <p id="payment-error" role="alert" className="commerce-error">{error}</p>}
     <button type="button" className="button" disabled={busy || !provider} onClick={() => void purchase('recharge')}>{busy ? '正在处理订单…' : '创建充值订单'}</button></div>
-    {plans.map((plan) => <button key={plan.id} type="button" className="text-button"
-      disabled={busy || (!provider && plan.price_cents !== 0)} onClick={() => void purchase('membership', plan)}>
-      购买{plan.name} · ¥{yuanText(plan.price_cents)}</button>)}
+    <PlanCards plans={plans} current={currentPlans} disabled={busy || !provider} onPurchase={(plan) => void purchase('membership', plan)} />
     {active && <section aria-label="支付订单" className="payment-active"><p>{active.description}</p><p className="payment-total">¥{yuanText(active.amount_cents)}</p>
       <p role="status"><OrderStatus order={active} /></p>
       <small>支付方式：{methodNames[active.provider] || '支付渠道'}<br />订单编号：<span className="payment-reference">{active.id}</span></small>

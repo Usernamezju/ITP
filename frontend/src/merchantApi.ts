@@ -1,6 +1,6 @@
 /** Merchant console client: accounts, garment import and look composition. */
 
-import { api } from './api';
+import { api, post } from './api';
 import { sessionToken } from './session';
 
 // Backward-compatible name; there is only one credential store and JWT scheme.
@@ -44,8 +44,9 @@ export function fetchGarmentOptions(): Promise<GarmentOptions> {
 
 export type MerchantProfile = {
   merchant_id: string; name: string; display_name: string; contact: string;
-  created: number; quota: number; garment_count: number; avatar_key?: string | null;
-  upload_usage?: { used: number; limit: number; remaining: number; starts: number; ends: number };
+  created: number; quota: number | null; garment_count: number; avatar_key?: string | null;
+  upload_usage?: { used: number; limit: number | null; remaining: number | null; starts: number; ends: number; unlimited?: boolean };
+  ai_usage?: { used: number; limit: number | null; remaining: number | null };
 };
 
 export type RegisterFields = {
@@ -223,11 +224,7 @@ export type LinkImport = {
 
 /** Ask the server to read a shop link and describe the product on it. */
 export function importProductLink(url: string): Promise<LinkImport> {
-  return api<LinkImport>('/api/merchant/import-link', {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ url }),
-  });
+  return post<LinkImport>('/api/merchant/import-link', { url });
 }
 
 /** Turn the server's preview back into a file the upload flow already accepts. */

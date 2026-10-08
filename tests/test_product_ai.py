@@ -248,6 +248,11 @@ def shop(tmp_path, monkeypatch):
                                                 "password": PASSWORD, "role": "merchant"})
         login = client.post("/api/auth/login", json={"name": "shop-ai", "password": PASSWORD})
         client.headers["Authorization"] = "Bearer " + login.json()["access_token"]
+        user = app.state.merchants.merchant_by_name("shop-ai")
+        plan = next(p for p in app.state.commerce.prices()["plans"] if p["id"] == "merchant_basic")
+        with app.state.merchants.connect() as conn:
+            app.state.commerce.grant_subscription(conn, user["id"], plan, "test-paid-shop")
+        client.headers["Idempotency-Key"] = "product-ai-test-key"
         yield client, monkeypatch
 
 

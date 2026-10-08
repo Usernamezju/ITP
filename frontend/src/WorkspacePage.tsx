@@ -9,7 +9,6 @@ import { explainJobError } from './errors';
 import { FaceRefinePanel } from './FaceRefinePanel';
 import { completedStages, jobState, stageLabels } from './jobView';
 import { importLocalImage, importLocalModel, localFileUrl } from './localData';
-import { yuanText } from './money';
 import { saveJob, uploadEach } from './transient';
 import { Viewer } from './Viewer';
 
@@ -168,7 +167,7 @@ export default function WorkspacePage() {
           <Toggle title="额外导出 FBX" description="通过云端转换保留实际模型格式" checked={fbx} onChange={setFbx} />
         </div>
         <div className="generate-footer"><button className="generate-button" disabled={submitting} onClick={() => void generate()}>{submitting ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />} 开始生成<ArrowRight size={16} /></button>
-          {modelPrice !== null && <small>¥{yuanText(modelPrice)} / 次，从钱包扣除；任务失败自动退款。</small>}
+          {modelPrice !== null && <small>基础人体建模 {modelPrice} 积分 / 次，失败退还</small>}
           {showGenerateIssues && generateIssues.length > 0 && <div className="generate-issues" role="alert"><strong>还需要完成：</strong><ul>{generateIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
             </div>}
           <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '人体建模暂不可用，仍可上传图片或导入 GLB' : poseMode !== 'original' && !caps.pose ? '姿势编辑暂不可用，可选择原始姿势' : '所选云端生成与处理步骤可能产生费用'}</small></div>

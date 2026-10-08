@@ -52,7 +52,7 @@ def test_upgrading_keeps_the_account_and_opens_the_merchant_api(client):
     profile = client.get("/api/merchant/me").json()
     assert profile["display_name"] == "老顾客的小店"
     assert profile["garment_count"] == 0
-    assert profile["upload_usage"]["limit"] == 5   # the merchant free plan
+    assert profile["upload_usage"]["limit"] == 10   # the merchant free plan
     # …and every customer endpoint still works.
     assert client.get("/api/account/commerce").status_code == 200
     assert client.get("/api/account/orders").status_code == 200

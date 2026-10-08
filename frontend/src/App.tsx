@@ -10,6 +10,8 @@ import MerchantGate from './MerchantGate';
 import { OutfitsPage } from './OutfitsPage';
 import { TryOnPage } from './TryOnPage';
 import WorkspacePage from './WorkspacePage';
+import SigninPage from './SigninPage';
+import PricingPage from './PricingPage';
 
 /**
  * Every customer, merchant and operator address is a real URL: the workspace
@@ -55,6 +57,8 @@ const router = createBrowserRouter([
       { path: 'merchant/analytics/:range', element: <MerchantClickDetailPage /> },
       { path: 'history', element: <HistoryPage /> },
       { path: 'account', element: <AccountRoute /> },
+      { path: 'signin', element: <SigninPage /> },
+      { path: 'pricing', element: <PricingPage /> },
       { path: 'appearance', element: <Navigate to="/account" replace /> },
       // Any other address belongs to no page yet; send it to the workbench.
       { path: '*', element: <Navigate to="/" replace /> },

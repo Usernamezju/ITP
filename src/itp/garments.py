@@ -803,6 +803,7 @@ class MerchantStore:
                 raise AlreadyExists("商家名称已被占用") from exc
             if phone:
                 self.phones.bind(conn, merchant_id, phone, proof=phone_proof)
+            self.commerce.benefits.register(conn, merchant_id, role, now=int(created))
         return self.merchant(merchant_id)
 
     def merchant(self, merchant_id: str) -> dict | None:

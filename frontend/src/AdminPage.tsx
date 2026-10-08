@@ -929,6 +929,11 @@ function UsageSection({ usage }: { usage: AdminUsage }) {
       { label: '穿搭方案', value: `${usage.looks.total} 套 · 已发布 ${usage.looks.published || 0} 套` },
     ]} />
     <h3 className="admin-subtitle">模型扣费</h3>
+    {usage.points && <p>积分余额合计：{usage.points.total_balance_points} 积分</p>}
+    {usage.point_model_charges && <Table head={['积分建模状态', '次数', '积分']} rows={
+      Object.entries(usage.point_model_charges).map(([state, charge]) => [
+        chargeStates[state] || state, String(charge.count), `${charge.amount_points} 积分`,
+      ])} />}
     <Table head={['状态', '次数', '金额']} rows={charges.map(([state, charge]) => [
       chargeStates[state] || state, String(charge.count), money(charge.amount_cents),
     ])} />

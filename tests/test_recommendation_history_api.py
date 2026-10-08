@@ -31,6 +31,6 @@ def test_public_discovery_rejects_private_data_and_raw_history(env):
         assert client.post('/api/outfits/discover', json=payload).status_code == 422
     assert client.post('/api/outfits/recommend', json={}).status_code == 401
     token = token_for(client)
-    response = client.post('/api/outfits/recommend', headers=auth(token), json={
+    response = client.post('/api/outfits/recommend', headers={**auth(token), 'Idempotency-Key': 'recommendation-test-key'}, json={
         'history_preferences': {'categories': {'上装': 5}}})
     assert response.status_code == 200, response.text

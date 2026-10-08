@@ -172,6 +172,8 @@ export type AdminLedgerRow = {
   reference: string | null; created: number;
 };
 export type AdminUsage = {
+  points?: { count: number; total_balance_points: number };
+  point_model_charges?: Record<string, { count: number; amount_points: number }>;
   model_charges: Record<'reserved' | 'completed' | 'refunded', AdminCharge>;
   wallets: { count: number; total_balance_cents: number };
   recent_ledger: AdminLedgerRow[];
@@ -261,7 +263,7 @@ export function post<T>(url: string, body: unknown): Promise<T> {
 }
 
 // A retried request keeps its key so the wallet is charged at most once.
-const REPEATABLE = new Set(['/api/jobs', '/api/tryons']);
+const REPEATABLE = new Set(['/api/jobs', '/api/tryons', '/api/outfits/recommend', '/api/merchant/import-link']);
 const pendingCharges = new Map<string, string>();
 
 /** The bytes of one server asset; only the signed-in owner may read them. */

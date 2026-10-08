@@ -886,9 +886,10 @@ export function MerchantPage() {
           <small>@{profile.name}{profile.contact ? ` · ${profile.contact}` : ''}</small></div>
       </div>
       <div className="merchant-quota">
-        <span>本周期上传 {used}/{profile.quota} · 商品 {profile.garment_count} 件</span>
+        <span>本周期新增 {used}/{profile.quota ?? '不限量'} · 商品 {profile.garment_count} 件</span>
+        {profile.ai_usage && <small>AI 描述 {profile.ai_usage.used}/{profile.ai_usage.limit ?? '不限量'} 次</small>}
         <span className="merchant-quota-bar"><i style={{
-          width: `${Math.min(100, Math.round((used / Math.max(profile.quota, 1)) * 100))}%`,
+          width: `${profile.quota === null ? 0 : Math.min(100, Math.round((used / Math.max(profile.quota, 1)) * 100))}%`,
         }} /></span>
       </div>
       <button className="text-button" type="button" onClick={() => setView('account')}>

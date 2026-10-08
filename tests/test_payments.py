@@ -93,13 +93,13 @@ def test_membership_orders_use_snapshot_not_new_price_or_browser_amount(service)
     body = {
         "kind": "membership",
         "provider": "mock",
-        "plan_id": "customer_annual",
+        "plan_id": "customer_monthly",
         "amount_cents": None,
     }
     order = s.create(user, body, "member-order-key")
     assert order["amount_cents"] == 3000
     s.commerce.configure_plan(
-        "customer_annual",
+        "customer_monthly",
         name="Annual",
         audience="customer",
         price_cents=5000,
@@ -109,7 +109,7 @@ def test_membership_orders_use_snapshot_not_new_price_or_browser_amount(service)
     s.simulate(order["id"], user)
     summary = s.commerce.summary(user)
     assert summary["entitlements"]["personalized_recommendation"] and summary["balance_cents"] == 0
-    assert summary["subscriptions"][0]["ends"] - summary["subscriptions"][0]["starts"] > 360 * 86400
+    assert summary["subscriptions"][0]["ends"] - summary["subscriptions"][0]["starts"] >= 28 * 86400
     with pytest.raises(CommerceError):
         s.create(user, {**body, "amount_cents": 1}, "override-price-key")
 

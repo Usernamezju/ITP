@@ -300,7 +300,10 @@ def test_admin_dashboards_aggregate_every_account(client):
     payments.create(bob["id"], {"kind": "recharge", "provider": "mock", "amount_cents": 700,
                                 "plan_id": None}, "bob-order-key")
 
-    price = commerce.model_price_cents
+    with store.connect() as conn:
+        commerce.benefits.ledger_change(conn, alice["id"], 1600, "test_grant", "alice-points")
+        commerce.benefits.ledger_change(conn, bob["id"], 1600, "test_grant", "bob-points")
+    price = 0
     completed = commerce.reserve_model(alice["id"], "alice-charge-key", {"name": "alice"})
     commerce.finish_model(completed["job_id"], succeeded=True, valid_result=True)
     refunded = commerce.reserve_model(bob["id"], "bob-charge-key", {"name": "bob"})
