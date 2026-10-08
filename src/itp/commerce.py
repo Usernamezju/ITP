@@ -327,7 +327,7 @@ class CommerceStore:
         ).fetchall()
 
     def grant_subscription(self, conn, user_id, plan: dict, order_id: str, *, now=None):
-        """Internal fulfillment, called only from a verified payment transaction."""
+        """Internal fulfillment inside a verified payment or audited admin transaction."""
         now = int(time.time()) if now is None else now
         if conn.execute("SELECT 1 FROM subscriptions WHERE order_id=?", (order_id,)).fetchone():
             return

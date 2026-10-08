@@ -453,6 +453,8 @@ def create_app(
     app.include_router(phone_router(merchants))
     from itp.benefits import benefits_router
     app.include_router(benefits_router(merchants))
+    from itp.admin_gifts import admin_gifts_router
+    app.include_router(admin_gifts_router(merchants))
     app.include_router(payment_router(app.state.payments))
     from itp.feedback import feedback_router
     app.include_router(feedback_router(merchants))
@@ -637,7 +639,7 @@ def create_app(
             face_worker.provider.settings = updated
             return public_settings(updated)
 
-    # ---------------------------------------------------- admin console (read-only)
+    # ------------------------------------------------------------ admin console
     # Platform developer/administrator views. Admin accounts can only be minted
     # by scripts/create_admin.py; registration refuses the role outright. As with
     # the legacy /api/settings maintenance surface, these endpoints stay out of

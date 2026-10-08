@@ -173,6 +173,8 @@ const savedProductAi = {
 };
 
 type Options = {
+  giftWrites?: Record<string, unknown>[];
+  giftResponseLost?: boolean;
   /** Sign in before the page loads; false exercises the console's own login form. */
   startSignedIn?: boolean;
   role?: 'admin' | 'customer';
@@ -195,11 +197,18 @@ async function openAdmin(page: Page, options: Options = {}) {
   // A fresh copy per call: these fixtures are mutated as the console works.
   const manual = { enabled: false, channels: manualChannels() };
   const pending = options.manual ? manualOrdersSeed.map((order) => ({ ...order })) : [];
+  const gifts: Record<string, unknown>[] = [];
+  let lostGiftResponse = false;
+  const giftPlans = [
+    { id: 'merchant_premium', name: '高级版', audience: 'merchant', period_months: 1 },
+    { id: 'customer_monthly', name: '顾客月会员', audience: 'customer', period_months: 1 },
+  ];
   const body: Record<string, unknown> = {
     '/api/admin/status': status, '/api/admin/settings': settings,
     '/api/admin/accounts': accounts, '/api/admin/usage': usage,
     '/api/admin/orders': orders, '/api/admin/jobs': jobs, '/api/admin/feedback': feedback,
     '/api/admin/payments': payments, '/api/admin/product-ai': productAi,
+    '/api/admin/gifts': { total: 0, items: [], plans: giftPlans },
   };
   let token = startSignedIn ? 'admin-token' : '';
   if (startSignedIn) {
@@ -207,7 +216,28 @@ async function openAdmin(page: Page, options: Options = {}) {
   }
   await page.route('**/*', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/admin/product-ai/config' && options.productAiConfig) {
+    if (path.startsWith('/api/admin/gifts') && unauthorized) {
+      await route.fulfill({ status: 401, json: { detail: '登录状态已失效' } });
+    } else if (path === '/api/admin/gifts/accounts') {
+      await route.fulfill({ json: { items: [
+        { id: 'b'.repeat(32), name: 'fan', display_name: '智慧服装', role: 'merchant', balance_points: 0 },
+      ] } });
+    } else if (path === '/api/admin/gifts' && route.request().method() === 'POST') {
+      const payload = route.request().postDataJSON() as Record<string, unknown>;
+      options.giftWrites?.push(payload);
+      let result = gifts.find(item => item.request_id === payload.request_id);
+      if (!result) {
+        result = { ...payload, id: 'gift-1', account_name: 'fan', admin_name: 'ops',
+          created: 1790671718, plan_name: '高级版', balance_points: payload.points };
+        gifts.push(result);
+      }
+      if (options.giftResponseLost && !lostGiftResponse) {
+        lostGiftResponse = true;
+        await route.abort('failed');
+      } else await route.fulfill({ json: result });
+    } else if (path === '/api/admin/gifts') {
+      await route.fulfill({ json: { total: gifts.length, items: gifts, plans: giftPlans } });
+    } else if (path === '/api/admin/product-ai/config' && options.productAiConfig) {
       calls.push(path);
       await route.fulfill({ json: options.productAiConfig(route.request().postDataJSON()) });
     } else if (path === '/api/admin/payments/config' && options.paymentConfig) {
@@ -289,6 +319,52 @@ async function openAdmin(page: Page, options: Options = {}) {
   await page.goto('/admin');
   return calls;
 }
+
+test('the admin previews and grants membership for the selected account role', async ({ page }) => {
+  const writes: Record<string, unknown>[] = [];
+  await openAdmin(page, { giftWrites: writes });
+  const panel = section(page, '会员与积分赠送');
+  await panel.getByLabel('搜索赠送账号').fill('fan');
+  await panel.getByRole('button', { name: 'fan · 智慧服装 · 商家' }).click();
+  await expect(panel.getByLabel('会员套餐')).toHaveValue('merchant_premium');
+  await expect(panel.getByLabel('会员套餐').locator('option')).toHaveCount(1);
+  await panel.getByLabel('赠送期数').fill('2');
+  await panel.getByLabel('赠送原因').fill('演示活动');
+  await panel.getByRole('button', { name: '预览赠送' }).click();
+  expect(writes).toHaveLength(0);
+  await expect(panel.getByLabel('赠送确认')).toContainText('高级版 2 期');
+  await panel.getByRole('button', { name: '确认赠送', exact: true }).click();
+  await expect(panel.getByRole('status')).toContainText('已向 fan 赠送高级版 2 期');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({ user_id: 'b'.repeat(32), kind: 'membership',
+    plan_id: 'merchant_premium', periods: 2, reason: '演示活动' });
+  expect(writes[0]).not.toHaveProperty('points');
+  await expect(panel.getByRole('cell', { name: 'ops', exact: true })).toBeVisible();
+  expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBeTruthy();
+});
+
+test('a lost gift response survives reload and retries the same request', async ({ page }) => {
+  const writes: Record<string, unknown>[] = [];
+  await openAdmin(page, { giftWrites: writes, giftResponseLost: true });
+  const panel = section(page, '会员与积分赠送');
+  await panel.getByLabel('搜索赠送账号').fill('fan');
+  await panel.getByRole('button', { name: 'fan · 智慧服装 · 商家' }).click();
+  await panel.getByLabel('赠送类型').selectOption('points');
+  await panel.getByLabel('赠送积分').fill('800');
+  await panel.getByLabel('赠送原因').fill('积分活动');
+  await panel.getByRole('button', { name: '预览赠送' }).click();
+  await panel.getByRole('button', { name: '确认赠送', exact: true }).click();
+  await expect(panel.getByRole('button', { name: '重试本次赠送' })).toBeEnabled();
+  await page.reload();
+  await expect(panel.getByLabel('赠送确认')).toContainText('800 积分');
+  await panel.getByRole('button', { name: '重试本次赠送' }).click();
+  await expect(panel.getByRole('status')).toContainText('已向 fan 赠送800 积分');
+  expect(writes).toHaveLength(2);
+  expect(writes[1]).toEqual(writes[0]);
+  expect(writes[0]).not.toHaveProperty('plan_id');
+  await expect(panel.getByRole('cell', { name: '800 积分', exact: true })).toHaveCount(1);
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+});
 
 test('an anonymous visitor gets a sign-in card without a registration path', async ({ page }) => {
   const calls = await openAdmin(page, { startSignedIn: false });

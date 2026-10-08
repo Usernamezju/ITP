@@ -118,7 +118,8 @@ role 字段仍是 `customer`/`merchant` 二选一，提交 `admin` 返回 422。
 | POST | `/api/account/avatar` | Bearer；multipart `file`，服务端重编码为 256×256 PNG 后保存 |
 | DELETE | `/api/account/avatar` | Bearer；恢复默认头像并删除已上传的文件 |
 | GET | `/api/avatars/{key}` | 公开；按随机键返回头像 PNG，键格式外一律 404 |
-| GET | `/api/admin/status` 等 | Bearer + admin 角色；只读管理后台数据，唯一的写接口是支付配置 `POST /api/admin/payments/config`，见 [Web 工作台](WEB.md) |
+| GET | `/api/admin/status` 等 | Bearer + admin 角色；管理后台数据，见 [Web 工作台](WEB.md) |
+| GET / POST | `/api/admin/gifts` 等 | Bearer + admin 角色；[会员与积分赠送](ADMIN_GIFTS.md)，包含审计记录与幂等保护 |
 
 旧 `/api/merchant/register`、`login` 和 `password` 委托同一实现，兼容旧调用方；
 商家登录和所有商家业务接口必须是 merchant 角色。普通顾客请求商家接口得到

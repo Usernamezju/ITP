@@ -10,7 +10,7 @@ export type PointSummary = { balance_points: number; model_price_points: number;
   days: { day: string; state: string; can_makeup: boolean }[]; demo_unlimited: boolean };
 type PointEntry = { id: string; delta: number; balance: number; kind: string; created: number };
 const labels: Record<string, string> = { registration: '新顾客赠送', first_membership: '首次付费会员赠送',
-  signin: '每日签到', makeup: '补签奖励', full_attendance: '会员月全勤奖', model_debit: '基础人体建模', model_refund: '建模失败退还' };
+  signin: '每日签到', makeup: '补签奖励', full_attendance: '会员月全勤奖', model_debit: '基础人体建模', model_refund: '建模失败退还', admin_gift: '管理员赠送' };
 
 export function PointsPanel() {
   const [summary, setSummary] = useState<PointSummary | null>(null);

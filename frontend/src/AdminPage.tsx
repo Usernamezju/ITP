@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import AdminGifts from './AdminGifts';
 import {
   Activity, AlertCircle, Database, KeyRound, LoaderCircle, LogOut, MessageSquarePlus, Package,
   RefreshCw, ShieldCheck, Sparkles, Users, Wallet,
@@ -109,7 +110,7 @@ export default function AdminPage() {
       <div className="admin-brand">
         <BrandMark className="admin-brand-mark" />
         <ShieldCheck size={19} />
-        <div><strong>ClothiNation 系统管理后台</strong><small>平台运维控制台 · 仅支付配置可写</small></div>
+        <div><strong>ClothiNation 系统管理后台</strong><small>平台运维控制台 · 会员积分与服务配置</small></div>
       </div>
       <nav className="admin-topnav" aria-label="站点导航">
         <a href="/">顾客端</a><a href="/merchant">商家端</a><a href="/docs">接口文档</a>
@@ -210,6 +211,10 @@ function AdminDashboard({ account, onSignOut }: { account: Account; onSignOut: (
         render={(data) => <StatusSection status={data} />} />
       <Section title="账号与商户" icon={<Users size={15} />} loadable={sections.accounts}
         render={(data) => <AccountsSection accounts={data} />} />
+      <section className="admin-section wide">
+        <h2 className="admin-section-title"><Users size={15} />会员与积分赠送</h2>
+        <AdminGifts adminId={account.id} onGift={() => void load()} />
+      </section>
       <section className="admin-section wide">
         <h2 className="admin-section-title"><MessageSquarePlus size={15} />用户反馈</h2>
         <FeedbackSection />

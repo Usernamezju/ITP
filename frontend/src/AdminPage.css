@@ -77,6 +77,18 @@
 .admin-pill{font-size:10px;font-weight:500;border:1px solid var(--theme-border);border-radius:20px;padding:3px 9px;color:var(--theme-muted);white-space:nowrap}
 .admin-pill.ready{color:var(--theme-success);border-color:var(--theme-border);background:var(--theme-soft)}
 .admin-login{max-width:420px;padding:28px}
+.admin-gifts{padding:14px 20px;min-width:0}
+.admin-gift-fields{border:0;padding:0;margin:0;display:grid;gap:12px;min-width:0}
+.admin-gift-fields label{display:grid;gap:6px;font-size:12px}
+.admin-gift-fields input,.admin-gift-fields select,.admin-gift-fields textarea{width:100%;padding:9px 10px;min-height:40px;font:inherit;color:var(--theme-text);background:var(--theme-surface);border:1px solid var(--theme-border);border-radius:6px}
+.admin-gift-fields .button{justify-self:start;min-height:40px}
+.admin-gift-matches{display:flex;flex-wrap:wrap;gap:8px}
+.admin-gift-matches [aria-pressed=true]{outline:2px solid var(--theme-primary)}
+.admin-gift-selected,.admin-gift-review{overflow-wrap:anywhere;font-size:12px;line-height:1.7}
+.admin-gift-selected small{display:block;color:var(--theme-muted)}
+.admin-gift-review{padding:14px;margin-top:14px;border:1px solid var(--theme-border);border-radius:8px;background:var(--theme-soft)}
+.admin-gift-review .button{margin-right:8px;min-height:40px}
+.admin-gift-reason{max-width:280px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:860px){.admin-grid{grid-template-columns:1fr}.admin-main{padding:20px 16px 40px}}
 @media(max-width:760px){.admin-topbar{padding:11px 15px}.admin-heading h1{font-size:19px}.admin-card{padding:20px}}
 

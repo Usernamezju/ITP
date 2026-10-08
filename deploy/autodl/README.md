@@ -44,7 +44,7 @@ API 均返回 404；当前客户端使用账号分区的浏览器 IndexedDB。�
 
 ## Admin console
 
-`/admin` is a read-only operator console for the platform developer. Create the
+`/admin` is an operator console for the platform developer, with audited membership and point grants. Create the
 administrator account on the server; registration can never mint one:
 
 ```bash
@@ -56,8 +56,11 @@ overwrite an existing account and never prints the password. Every `/api/admin/*
 FastAPI: customers, merchants and anonymous visitors get 401/403. The console
 shows system status, provider settings without secret values, account and
 product totals, wallet/charge aggregates, orders and the tasks currently in
-RAM. It has no write endpoint, so provider credentials remain `.env`-owned:
-edit the server `.env` and restart `itp-api`. The `/admin` page itself opens directly; its data requires an admin account.
+RAM. Administrators can grant memberships and points in the dedicated section;
+grants use existing benefits, retain an audit record, and support idempotent retries
+without charging wallets or creating payment orders. See `docs/modules/ADMIN_GIFTS.md`.
+Payment and product-AI configuration sections preserve server-owned credentials.
+The `/admin` page itself opens directly; its data requires an admin account.
 
 Unified registration and login are rate-limited by the application. Account
 routes validate JWTs; merchant routes additionally validate database roles and
