@@ -9,6 +9,7 @@ import {
 } from './merchantApi';
 import { logoutAccount } from './accountApi';
 import { AvatarImage } from './Avatar';
+import { BrandLockup, BrandMark } from './BrandLogo';
 import { SESSION_EVENT } from './session';
 import { parseYuan, yuanText } from './money';
 import {
@@ -240,6 +241,7 @@ function AuthPanel({ onSignedIn, onError }: {
   return <div className="merchant-auth">
     <form className="merchant-auth-card" onSubmit={submit}>
       <div className="merchant-auth-heading">
+      <BrandLockup className="merchant-auth-brand" />
         <Store size={20} strokeWidth={1.5} />
         <div><strong>{mode === 'register' ? '注册商家账号' : '商家登录'}</strong>
           <small>商品先存为草稿，确认无误后再发布到推荐页</small></div>
@@ -884,6 +886,9 @@ export function MerchantPage() {
         <AvatarImage className="merchant-avatar" user={profile} decorative />
         <div><strong>{profile.display_name}</strong>
           <small>@{profile.name}{profile.contact ? ` · ${profile.contact}` : ''}</small></div>
+      <a href="/merchant" className="merchant-brand" aria-label="衣想国 ClothiNation 商家后台">
+        <BrandMark className="merchant-brand-mark" />
+      </a>
       </div>
       <div className="merchant-quota">
         <span>本周期新增 {used}/{profile.quota ?? '不限量'} · 商品 {profile.garment_count} 件</span>

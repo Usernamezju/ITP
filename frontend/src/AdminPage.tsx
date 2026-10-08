@@ -9,6 +9,7 @@ import {
   type AdminProductAiUpdate, type AdminProviderSettings, type AdminStatus, type AdminUsage,
 } from './api';
 import { accountApi, logoutAccount, useAccountSession, type Account } from './accountApi';
+import { BrandMark } from './BrandLogo';
 import { stageLabels } from './jobView';
 import { yuanText } from './money';
 import { sessionToken } from './session';
@@ -106,6 +107,7 @@ export default function AdminPage() {
   return <div className="admin-shell">
     <header className="admin-topbar">
       <div className="admin-brand">
+        <BrandMark className="admin-brand-mark" />
         <ShieldCheck size={19} />
         <div><strong>ClothiNation 系统管理后台</strong><small>平台运维控制台 · 仅支付配置可写</small></div>
       </div>

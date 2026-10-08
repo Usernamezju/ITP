@@ -1,7 +1,9 @@
-import { Box, CalendarCheck, CircleHelp, Clock3, Crown, Layers3, MessageSquarePlus, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
+import { CalendarCheck, CircleHelp, Clock3, Crown, Layers3, MessageSquarePlus, Plus, Settings2, Shirt, Sparkles, Store, X } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AccountAvatar } from './AccountPage';
+import { DefaultAvatar } from './Avatar';
+import { BrandMark } from './BrandLogo';
 import { CustomerProvider, useCustomer } from './customerState';
 import { FeedbackDialog } from './FeedbackDialog';
 
@@ -38,7 +40,7 @@ function CustomerChrome() {
 
   return <div className="app-shell">
     <aside className="rail">
-      <a href="/" className="brand" aria-label="ClothiNation 首页"><Box size={27} strokeWidth={1.6} /></a>
+      <a href="/" className="brand" aria-label="衣想国 ClothiNation 首页"><BrandMark className="brand-mark" /></a>
       <NavLink to="/" end className={railClass} aria-label="人体建模" title="人体建模"><Layers3 size={21} /></NavLink>
       <NavLink to="/tryon" className={railClass} aria-label="虚拟试穿" title="虚拟试穿"><Shirt size={21} /></NavLink>
       <NavLink to="/outfits" className={railClass} aria-label="穿搭推荐" title="穿搭推荐"><Sparkles size={21} /></NavLink>
@@ -49,10 +51,10 @@ function CustomerChrome() {
       <div className="rail-spacer" />
       <NavLink to="/account" className={railClass} aria-label="设置" title="账号与外观设置"><Settings2 size={21} /></NavLink>
       <a href="/docs" target="_blank" rel="noreferrer" aria-label="接口文档" title="接口文档"><CircleHelp size={20} /></a>
-      <div className="avatar">IT</div>
+      <DefaultAvatar className="avatar brand-avatar" alt="衣想国默认头像" />
     </aside>
     <div className="workspace-shell">
-      <header className="topbar"><div className="wordmark">ClothiNation <span>穿搭空间</span><i /> <span className="breadcrumb">发现适合你的穿搭</span></div>
+      <header className="topbar"><div className="wordmark"><BrandMark className="wordmark-mark" />衣想国 <span className="wordmark-product">ClothiNation 穿搭空间</span><i /> <span className="breadcrumb">发现适合你的穿搭</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> {account.user ? '账户私有空间' : '登录后同步素材'}</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button>
           <button type="button" className="feedback-trigger" aria-haspopup="dialog"
@@ -65,7 +67,10 @@ function CustomerChrome() {
         <h1>{titleFor(pathname)}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       <Outlet />
-      {pathname !== '/outfits' && <footer className="statusbar"><span /><span>ClothiNation STUDIO <i>v0.1</i></span></footer>}
+      {pathname !== '/outfits' &&
+        <footer className="statusbar"><span />
+          <span className="statusbar-brand"><BrandMark className="statusbar-mark" />衣想国 ClothiNation STUDIO <i>v0.1</i></span>
+        </footer>}
     </div>
     <FeedbackDialog open={feedback} user={account.user} onClose={() => setFeedback(false)} />
   </div>;

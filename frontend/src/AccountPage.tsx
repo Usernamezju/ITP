@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { CircleHelp, LoaderCircle, LogOut, UserRound } from 'lucide-react';
+import { CircleHelp, LoaderCircle, LogOut } from 'lucide-react';
 import { accountApi, logoutAccount, removeAvatar, uploadAvatar, type Account } from './accountApi';
-import { AvatarImage } from './Avatar';
+import { AvatarImage, DefaultAvatar } from './Avatar';
+import { BrandLockup } from './BrandLogo';
 import { sessionToken } from './session';
 import './AccountPage.css';
 import { CommercePanel } from './CommercePanel';
@@ -86,8 +87,10 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
     </nav>
     {error && <p role="alert" className="account-error">{error}</p>}
     {notice && <p role="status" className="account-notice">{notice}</p>}
-    {!user ? <form id="account-information" className="account-card" tabIndex={-1} onSubmit={authenticate}>
-      <h2><UserRound size={18} /> {mode === 'login' ? '登录账号' : '创建账号'}</h2>
+    {!user ? <form id="account-information" className="account-card account-signin-card" tabIndex={-1} onSubmit={authenticate}>
+      <BrandLockup className="account-signin-brand" />
+      <h2>{mode === 'login' ? '登录账号' : '创建账号'}</h2>
+      <p className="account-card-description">衣想国 ClothiNation · 图像到三维的穿搭空间</p>
       <div className="account-tabs"><button type="button" className={mode === 'login' ? 'active' : ''}
         onClick={() => setMode('login')}>登录</button><button type="button" className={mode === 'register' ? 'active' : ''}
         onClick={() => setMode('register')}>注册</button></div>
@@ -178,6 +181,7 @@ export function AccountAvatar({ user, checking, onAccount }: {
   return <button type="button" className="account-avatar" disabled={checking}
       aria-label={user ? '账户与设置' : '登录或注册'} onClick={onAccount}>
       {checking ? <LoaderCircle size={15} className="spin" />
-        : user ? <AvatarImage className="account-avatar-image" user={user} decorative /> : <UserRound size={17} />}
+        : user ? <AvatarImage className="account-avatar-image" user={user} decorative />
+          : <DefaultAvatar className="account-avatar-image" />}
     </button>;
 }

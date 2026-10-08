@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { LoaderCircle, Store } from 'lucide-react';
 import { accountApi, type Account } from './accountApi';
+import { BrandLockup, BrandSpinner } from './BrandLogo';
 import { useCustomer } from './customerState';
 import { MerchantPage } from './MerchantPage';
 
@@ -13,8 +14,9 @@ export default function MerchantGate() {
   const { account } = useCustomer();
 
   if (account.checking) {
-    return <section className="account-page"><div className="account-card">
-      <h2><LoaderCircle size={17} className="spin" /> 正在验证账号</h2>
+    return <section className="account-page"><div className="account-card account-gate-card">
+      <BrandSpinner size={56} />
+      <h2>正在验证账号</h2>
       <p>请稍候，正在确认当前登录身份。</p>
     </div></section>;
   }
@@ -43,6 +45,7 @@ function MerchantUpgrade({ account, onUpgraded }: { account: Account; onUpgraded
   }
 
   return <section className="account-page"><div className="account-card merchant-upgrade">
+    <BrandLockup className="merchant-upgrade-brand" />
     <h2><Store size={18} /> 注册成为商家</h2>
     <p className="account-card-description">
       把当前账号升级为商家：余额、订单、创作记录都留在同一个账号里。

@@ -104,3 +104,8 @@
 .admin-config-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .admin-config-actions small { font-size: 12px; color: var(--theme-muted); }
 .admin-notice { font-size: 12px; line-height: 1.7; color: var(--theme-success); }
+
+/* The operator console names the same product, so it carries the same mark.
+   The shield beside it stays red; the mark keeps the brand's own ink. */
+.admin-brand-mark { width: 26px; height: 26px; }
+.admin-brand .admin-brand-mark svg { color: var(--brand-ink); }

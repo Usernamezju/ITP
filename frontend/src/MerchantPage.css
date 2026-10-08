@@ -52,6 +52,15 @@
 .merchant-identity div { display: flex; flex-direction: column; }
 .merchant-identity strong { font-size: 13px; color: var(--theme-text); }
 .merchant-identity small { font-size:12px; color: var(--theme-muted); }
+/* The shop console keeps the brand in its own bar and on its sign-in card. */
+.merchant-brand { display: flex; align-items: center; color: var(--brand-ink); flex-shrink: 0; }
+.merchant-brand-mark { width: 28px; height: 28px; }
+.merchant-auth-brand { margin: 2px auto 16px; }
+.merchant-upgrade-brand { margin: 2px auto 6px; }
+@media (max-width: 760px) {
+  .merchant-brand-mark { width: 24px; height: 24px; }
+  .merchant-auth-brand { margin-bottom: 12px; }
+}
 .merchant-quota { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size:12px; color: var(--theme-muted); }
 .merchant-quota-bar {
   display: inline-block; width: 84px; height: 4px; border-radius: 2px;

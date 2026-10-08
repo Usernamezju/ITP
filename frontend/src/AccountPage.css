@@ -142,3 +142,15 @@ button.account-avatar { padding: 0; overflow: hidden; }
 .account-avatar-actions label { position: relative; cursor: pointer; }
 .account-avatar-actions input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .account-avatar-actions small { flex-basis: 100%; font-size: 12px; line-height: 1.7; color: var(--theme-muted); }
+
+/* The sign-in card opens with the brand, so the form has a front door. */
+.account-signin-card { align-items: stretch; text-align: left; }
+.account-signin-brand { margin: 2px auto 4px; }
+.account-signin-card h2 { justify-content: center; }
+.account-signin-card .account-card-description { text-align: center; margin: -6px 0 0; }
+/* A gate is a wait, so it shows the brand's own loading mark. */
+.account-gate-card { align-items: center; text-align: center; gap: 14px; }
+.account-gate-card p { color: var(--theme-muted); font-size: 14px; }
+@media (max-width: 760px) {
+  .account-signin-brand { margin-top: 0; }
+}
