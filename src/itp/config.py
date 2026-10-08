@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     unsplash_access_key: SecretStr = SecretStr("")
     pixabay_api_key: SecretStr = SecretStr("")
     jwt_secret: SecretStr = SecretStr("")
+    sms_endpoint: str = ""
+    sms_api_key: SecretStr = SecretStr("")
     merchant_token_hours: int = Field(default=12, ge=1, le=720)
     merchant_quota: int = Field(default=200, ge=0, le=100000)
     merchant_free_upload_limit: int = Field(default=5, ge=0, le=100000)
@@ -101,6 +103,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_endpoints(self):
+        if self.sms_endpoint:
+            sms_url = urlparse(self.sms_endpoint)
+            if (sms_url.scheme != "https" or not sms_url.hostname or sms_url.username
+                    or sms_url.password or sms_url.query or sms_url.fragment):
+                raise ValueError("SMS gateway must be a server-configured HTTPS URL")
         if self.payment_mock_enabled:
             if self.environment not in {"development", "test"} or self.public_origin:
                 raise ValueError("Mock payments are forbidden in production or public deployments")

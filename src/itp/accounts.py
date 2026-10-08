@@ -6,7 +6,7 @@ from collections import OrderedDict
 from typing import Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AccountRegisterRequest(BaseModel):
@@ -15,6 +15,9 @@ class AccountRegisterRequest(BaseModel):
     display_name: str
     contact: str = ""
     password: str
+    phone: str = Field(default="", max_length=32)
+    sms_challenge_id: str = Field(default="", max_length=32)
+    sms_code: str = Field(default="", max_length=6)
     # The admin role is deliberately absent: it can only be minted by the local
     # scripts/create_admin.py, never through the public registration API.
     role: Literal["customer", "merchant"] = "customer"

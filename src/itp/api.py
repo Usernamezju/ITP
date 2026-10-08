@@ -420,6 +420,8 @@ def create_app(
     app.state.settings = settings
     app.state.payments = PaymentService(merchants, settings, transport=payment_transport)
     app.state.product_ai = product_ai
+    from itp.phones import phone_router
+    app.include_router(phone_router(merchants))
     app.include_router(payment_router(app.state.payments))
     from itp.feedback import feedback_router
     app.include_router(feedback_router(merchants))
@@ -1389,17 +1391,30 @@ def create_app(
     @app.post("/api/auth/register", status_code=201)
     def account_register(body: AccountRegisterRequest, request: Request):
         fields = merchant_register_fields(MerchantRegisterRequest(
-            **body.model_dump(exclude={"role"})))
+            **body.model_dump(exclude={"role", "phone", "sms_challenge_id", "sms_code"})))
         peer = request.client.host if request.client else "unknown"
         if peer in {"127.0.0.1", "::1"}:
             peer = request.headers.get("x-forwarded-for", peer).split(",")[-1].strip()
         auth_limiter.check(("register", peer), attempts=10, seconds=3600)
+        proof = None
+        if body.phone:
+            from itp.phones import mainland_phone
+            try:
+                body.phone = mainland_phone(body.phone)
+                if merchants.phones.ready:
+                    proof = merchants.phones.check(f"register:{fields['name']}", body.phone,
+                        "register", body.sms_challenge_id, body.sms_code)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
         try:
             user = merchants.create_merchant(**fields, password_hash=hash_password(body.password),
+                phone=body.phone, phone_proof=proof,
                 role=body.role, quota=app.state.settings.merchant_quota if body.role == "merchant" else 0)
         except AlreadyExists as exc:
             raise HTTPException(409, "账号名称已被占用") from exc
-        return public_account(user)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return public_account(user) | merchants.phones.profile(user["id"])
 
     @app.post("/api/auth/login")
     def account_login(body: MerchantLoginRequest, request: Request):
@@ -1414,7 +1429,7 @@ def create_app(
 
     @app.get("/api/account/me")
     def account_me(user: dict = Depends(current_user)):
-        return public_account(user)
+        return public_account(user) | merchants.phones.profile(user["id"])
 
     @app.get("/api/pricing")
     def pricing():

@@ -1,14 +1,19 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { CircleHelp, LoaderCircle, LogOut, UserRound } from 'lucide-react';
 import { accountApi, logoutAccount, removeAvatar, uploadAvatar, type Account } from './accountApi';
 import { AvatarImage } from './Avatar';
 import { sessionToken } from './session';
 import './AccountPage.css';
 import { CommercePanel } from './CommercePanel';
+import { PhoneBinding } from './PhoneBinding';
 
 export function AccountPage({ user, onChanged, children }: { user: Account | null; onChanged: () => void; children?: ReactNode }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [fields, setFields] = useState({ name: '', display_name: '', contact: '', password: '', role: 'customer' });
+  const [fields, setFields] = useState({ name: '', display_name: '', contact: '', password: '', role: 'customer',
+    phone: '', sms_challenge_id: '', sms_code: '' });
+  const [smsAvailable, setSmsAvailable] = useState(false);
+  useEffect(() => { void accountApi<{ sms_available: boolean }>('/api/auth/phone-policy')
+    .then((p) => setSmsAvailable(p.sms_available)).catch(() => {}); }, []);
   const [profile, setProfile] = useState({ display_name: user?.display_name || '', contact: user?.contact || '' });
   const [passwords, setPasswords] = useState({ current: '', next: '', again: '' });
   const [busy, setBusy] = useState(false);
@@ -90,8 +95,15 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
       {mode === 'register' && <>
         <label>昵称 / 商家名称<input className="text-input" required maxLength={40} value={fields.display_name}
           onChange={(event) => setFields({ ...fields, display_name: event.target.value })} /></label>
-        <label>手机号<input className="text-input" maxLength={80} inputMode="tel" value={fields.contact}
-          onChange={(event) => setFields({ ...fields, contact: event.target.value })} /></label>
+        <label>手机号<input className="text-input" maxLength={11} pattern="1[3-9][0-9]{9}" inputMode="tel" autoComplete="tel-national" value={fields.phone}
+          onChange={(event) => setFields({ ...fields, phone: event.target.value, sms_challenge_id: '', sms_code: '' })} /></label>
+        <small>建议绑定中国大陆手机号。{smsAvailable ? '填写号码后请完成短信验证。' : '短信服务未配置，填写后标记为“未验证”。'}</small>
+        {smsAvailable && <><button type="button" className="text-button" disabled={busy || !fields.phone || !fields.name}
+          onClick={() => void run(async () => {
+            const answer = await accountApi<{ challenge_id: string }>('/api/auth/sms', 'POST', { phone: fields.phone, name: fields.name.trim() });
+            setFields((old) => ({ ...old, sms_challenge_id: answer.challenge_id })); setNotice('验证码已发送');
+          })}>获取注册验证码</button><label>短信验证码<input className="text-input" inputMode="numeric" autoComplete="one-time-code"
+          maxLength={6} value={fields.sms_code} onChange={(event) => setFields({ ...fields, sms_code: event.target.value })} /></label></>}
         <label>账号身份<select className="text-input" value={fields.role}
           onChange={(event) => setFields({ ...fields, role: event.target.value })}>
           <option value="customer">普通顾客</option><option value="merchant">商家</option>
@@ -127,7 +139,7 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
         </div>
         <label>昵称 / 商家名称<input className="text-input" required maxLength={40} value={profile.display_name}
           onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></label>
-        <label>手机号<input className="text-input" maxLength={80} inputMode="tel" value={profile.contact}
+        <label>联系方式<input className="text-input" maxLength={80} value={profile.contact}
           onChange={(event) => setProfile({ ...profile, contact: event.target.value })} /></label>
         <div className="account-profile-actions"><button className="button primary" disabled={busy}>
           {busy ? <><LoaderCircle size={15} className="spin" />正在处理…</> : '保存个人资料'}</button>
@@ -137,6 +149,7 @@ export function AccountPage({ user, onChanged, children }: { user: Account | nul
             {editingPassword ? '收起密码修改' : '修改密码'}</button></div>
         <small className="account-profile-hint"><CircleHelp size={15} aria-hidden="true" />修改个人资料后将立即生效。</small>
       </form>
+      <PhoneBinding user={user} onChanged={onChanged} />
       {editingPassword && <form id="account-password-form" className="account-password-form" onSubmit={changePassword}><h3>修改密码</h3>
         <label>当前密码<input className="text-input" type="password" required autoComplete="current-password" value={passwords.current}
           onChange={(event) => setPasswords({ ...passwords, current: event.target.value })} /></label>

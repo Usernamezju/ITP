@@ -712,6 +712,8 @@ class MerchantStore:
                 conn.execute("ALTER TABLE garments ADD COLUMN purchase_url TEXT")
         from itp.commerce import CommerceStore
         self.commerce = CommerceStore(self, settings)
+        from itp.phones import PhoneStore
+        self.phones = PhoneStore(self, settings)
         from itp.product_clicks import ProductClicks
         self.clicks = ProductClicks(self)
         from itp.feedback import FeedbackStore
@@ -781,12 +783,15 @@ class MerchantStore:
         password_hash: str,
         quota: int,
         role: str = "merchant",
+        phone: str = "",
+        phone_proof: str | None = None,
     ) -> dict:
         if role not in {"customer", "merchant", "admin"}:
             raise ValueError("Invalid account role")
         merchant_id = uuid4().hex
         created = time.time()
         with self._lock, self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             try:
                 conn.execute(
                     "INSERT INTO merchants "
@@ -796,6 +801,8 @@ class MerchantStore:
                 )
             except sqlite3.IntegrityError as exc:
                 raise AlreadyExists("商家名称已被占用") from exc
+            if phone:
+                self.phones.bind(conn, merchant_id, phone, proof=phone_proof)
         return self.merchant(merchant_id)
 
     def merchant(self, merchant_id: str) -> dict | None:

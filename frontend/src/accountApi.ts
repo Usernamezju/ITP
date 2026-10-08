@@ -7,6 +7,9 @@ export type Account = {
   role: 'customer' | 'merchant' | 'admin'; created: number;
   /** Unguessable file key of the uploaded avatar, or null for the default. */
   avatar_key?: string | null;
+  phone?: string | null;
+  phone_verified?: boolean;
+  sms_available?: boolean;
 };
 
 /** The uploaded picture's URL, or null when the account uses the default one. */
