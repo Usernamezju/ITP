@@ -236,3 +236,87 @@ def test_demo_privileges_fail_closed():
     ):
         with pytest.raises(ValueError):
             Settings(_env_file=None, demo_enabled=True, **options)
+
+
+def demo_store(tmp_path, enabled):
+    """A shop store wired the way the app wires it, demo privilege on or off."""
+    from itp.benefits import BenefitsStore
+    from itp.commerce import CommerceStore
+
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        demo_enabled=enabled,
+        environment="development" if enabled else "production",
+    )
+    store = MerchantStore(tmp_path, settings)
+    benefits = BenefitsStore(CommerceStore(store, settings), settings)
+    return store, benefits
+
+
+def make_shop(store, name="demo-shop"):
+    return store.create_merchant(
+        name=name, display_name=name, contact="", password_hash="hash", quota=0
+    )
+
+
+def test_demo_privilege_is_granted_and_taken_away(tmp_path):
+    store, benefits = demo_store(tmp_path, enabled=True)
+    shop = make_shop(store)
+    assert benefits.demo_accounts() == []
+
+    assert benefits.grant_demo(shop["id"]) is True
+    assert benefits.demo_accounts() == [shop["id"]]
+    with store.connect() as conn:
+        assert benefits.demo(conn, shop["id"]) is True
+
+    # Granting twice is the same as granting once.
+    benefits.grant_demo(shop["id"])
+    assert benefits.demo_accounts() == [shop["id"]]
+
+    benefits.grant_demo(shop["id"], granted=False)
+    assert benefits.demo_accounts() == []
+    with store.connect() as conn:
+        assert benefits.demo(conn, shop["id"]) is False
+
+
+def test_demo_privilege_lifts_limits_without_writing_a_balance(tmp_path):
+    from itp.commerce import CommerceStore
+
+    store, benefits = demo_store(tmp_path, enabled=True)
+    shop = make_shop(store)
+    with store.connect() as conn:
+        before = conn.execute(
+            "SELECT balance FROM point_wallets WHERE user_id=?", (shop["id"],)
+        ).fetchone()
+
+    benefits.grant_demo(shop["id"])
+
+    with store.connect() as conn:
+        after = conn.execute(
+            "SELECT balance FROM point_wallets WHERE user_id=?", (shop["id"],)
+        ).fetchone()
+        # Nothing is credited: the entitlement lifts the ceiling instead, so the
+        # account never looks funded.
+        assert (before[0] if before else None) == (after[0] if after else None)
+    with store.connect() as conn:
+        bucket = benefits.merchant_usage(conn, shop["id"], "garment_upload")
+    assert bucket["unlimited"] is True and bucket["limit"] is None
+    assert CommerceStore(store).prices()["model_price_points"] == 800
+
+
+def test_a_server_without_the_switch_cannot_hand_the_privilege_out(tmp_path):
+    store, benefits = demo_store(tmp_path, enabled=False)
+    shop = make_shop(store)
+    with pytest.raises(CommerceError):
+        benefits.grant_demo(shop["id"])
+    assert benefits.demo_accounts() == []
+    # The switch being off is enough on its own: nothing was written.
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM demo_accounts").fetchone()[0] == 0
+
+
+def test_granting_to_an_account_that_does_not_exist_is_refused(tmp_path):
+    _, benefits = demo_store(tmp_path, enabled=True)
+    with pytest.raises(CommerceError):
+        benefits.grant_demo("f" * 32)

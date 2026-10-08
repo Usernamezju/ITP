@@ -101,6 +101,48 @@ class BenefitsStore:
             conn.execute("SELECT 1 FROM demo_accounts WHERE user_id=?", (user_id,)).fetchone()
         )
 
+    def grant_demo(self, user_id: str, granted: bool = True) -> bool:
+        """Mark an account as a demonstration one, or take the mark away.
+
+        The mark lifts the upload, recommendation, AI-description and modelling
+        limits rather than filling a balance: nothing here writes points, so the
+        account stays honest about what a real one would cost.
+
+        Two locks stand in front of it.  The setting itself cannot be true in a
+        production or public deployment, and this method refuses outright when
+        it is false, so a running production server has no code path that hands
+        the entitlement out.  Only an operator with local access to the data
+        directory can call it at all.
+        """
+        if not self.demo_enabled:
+            raise CommerceError("演示特权未启用；仅在开发或测试环境可由运维开启")
+        with self.accounts.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            exists = conn.execute(
+                "SELECT 1 FROM merchants WHERE id=?", (user_id,)
+            ).fetchone()
+            if not exists:
+                raise CommerceError("账号不存在")
+            if granted:
+                conn.execute(
+                    "INSERT OR IGNORE INTO demo_accounts (user_id, created) VALUES (?,?)",
+                    (user_id, int(time.time())),
+                )
+            else:
+                conn.execute("DELETE FROM demo_accounts WHERE user_id=?", (user_id,))
+            conn.commit()
+        return granted
+
+    def demo_accounts(self) -> list[str]:
+        """Every account that currently carries the demonstration entitlement."""
+        with self.accounts.connect() as conn:
+            return [
+                row[0]
+                for row in conn.execute(
+                    "SELECT user_id FROM demo_accounts ORDER BY created, user_id"
+                )
+            ]
+
     def ledger_change(self, conn, user_id, delta, kind, reference, *, now=None):
         if type(delta) is not int or abs(delta) > 10**12:
             raise CommerceError("积分必须是整数")
